@@ -1,0 +1,120 @@
+# Git: основная сборка, ML и сохранённые рабочие копии
+
+Снимок после `git fetch origin 'refs/heads/*:refs/remotes/origin/*'` и сверки
+`git ls-remote --heads origin`. Начальный HEAD продукта:
+`e0867a16a6554495baf065017f6ed91e68a794d1`. Во время аудита ML продвинулся;
+дополнительный fetch только ML зафиксировал `f8ccee2` ниже. Это снимок, не обещание
+неизменности активной ветки Омара.
+
+**Основная сборка — `codex/integration-cpu`. Единственная параллельная активная
+ветка — `codex/ml`.** Один Codex у Анияра владеет всем продуктом, один ML-Claude
+Омара — `app/inference/**`, `tests/inference/**`. Старые ветки/worktree сохранены,
+новые не создавались; `main` обновится проверенной сборкой при фиксации релиза.
+
+## Что включено
+
+Включение проверено через `git merge-base --is-ancestor`, не только по сообщению
+коммита. Деревья backend/frontend на входе аудита совпадали с handoff полностью.
+
+| Ветка / handoff | Точный commit | Решение |
+|---|---|---|
+| codex/bootstrap | `5c748f9c94c8cd7b32aae04a5c8b49a0c79491d8` | Уже включён |
+| codex/backend | `75ad2f7fe5325b7374cf05acef262694d372941d` | Уже включён вместе с предшественниками; новых remote-коммитов нет |
+| codex/frontend | `6b0d09d892ab51a4d8ef64a111605fd44639b897` | Уже включён; новых remote-коммитов дизайна нет |
+| Принятый ML | `5c61ccc3ef8976ba38d1cbc63f056516c46216fe` | Остаётся ML-базой продукта |
+| codex/finish-plans | `8f078166da46e05af6037e0eb9836e01943996ed` | Проверены и включены три документа 01/02/03; роли уточнены по последнему решению пользователя |
+| main | `08682a5837ea2fe4680c7a88dbc54c993314fccd` | Не менялся; это прежняя стартовая версия, не текущий продукт |
+
+Bootstrap-data локально также указывает на `08682a5`; ветки с таким именем в
+полученном списке heads GitHub нет. Backend/bootstrap/frontend/finish-plans теперь
+служат сохранёнными точками передачи, а не параллельными областями новой разработки.
+
+## ML рассматривается отдельно
+
+Последний полученный `origin/codex/ml`:
+`f8ccee2ad4a90c8559b6be79466c0243965179f7`. Сверх принятого `5c61ccc`:
+
+| Commit | Назначение | Состояние в продукте |
+|---|---|---|
+| `42a314ff2a6e48cd20b7f06c6ebb3c621baba6ec` | Отдельный эксперимент 2B/4B, также head codex/experiment-2b4b-3060 | Не включён |
+| `180e1b0` | Режим CASH-01 facts/conditions и dev_eval | Не включён, ждёт handoff |
+| `dd018ed` | Структурированные условия, multi-model dev_eval, human review и proposals | Не включён, ждёт handoff |
+| `a488552` | SHA256-проверяемый dev list, дедупликация и подготовка сервер | Не включён |
+| `f8ccee2` | Локальный discover вокруг label timecodes, доработка dev list/сервер runbook | Не включён |
+
+Это не только новые экспериментальные скрипты: меняются `analyzer.py` и `vlm.py`,
+добавляются `conditions.py`/`facts_prompt.py`, предложения config/catalog.
+`service.py`, общий контракт и production config/catalog в diff не менялись.
+Сигнатура сама по себе не подтверждает совместимость поведения и качество.
+Диагностика вокруг эталонного таймкода не является слепой проверкой inference.
+Код оценён по назначению/diff; эксперименты и ML-тесты в этом аудите не запускались.
+
+Готовый ML принимается по handoff Омара: точный commit/base, выбранный комплект
+с SHA256/параметрами, реализованные условия, проверенный источник, dev-агрегаты,
+ошибки и команда воспроизведения. Новизна ветки, candidate JSON или техническое
+сравнение 2B/4B не означают принятия модели, verified-правила или readiness.
+
+## Checkout и незакоммиченные файлы
+
+Общий корень: `C:\Users\aniya\Рабочий стол\assar-datathon`.
+Состояние остальных папок проверено только чтением, без переключения/очистки.
+
+| Папка относительно корня | Ветка / HEAD | Состояние на входе аудита |
+|---|---|---|
+| `.` | codex/bootstrap / 5c748f9 | Untracked: app/web/{index.html,styles.css,app.js}; docs/01_CURRENT_STATE_AND_FINISH_PLAN.md, 02_OMAR_MODEL_AND_QUALITY.md, 03_ANIYAR_SERVICE_AND_RELEASE.md |
+| `.worktrees/data-split` | codex/bootstrap-data / 08682a5 | Untracked: docs/DATA_SPLIT.md, docs/data_split_receipt.json, tests/eval/test_freeze_split.py |
+| `.worktrees/finish-plans` | codex/finish-plans / 8f07816 | Чисто |
+| `.worktrees/frontend` | codex/frontend / 6b0d09d | Чисто |
+| `.worktrees/integration-cpu` | codex/integration-cpu / e0867a1 | На входе чисто; изменения этого аудита фиксируются здесь |
+| `.worktrees/ml-portability-3060` | codex/ml-portability-3060 / a6d5b6a | Чисто по tracked/untracked; отдельный clone, не зарегистрированный worktree общего Git |
+| `.worktrees/ml-2b4b-experiment` | codex/experiment-2b4b-3060 / 42a314f | Чисто по tracked/untracked; отдельный clone |
+
+Три untracked плана в исходной папке побайтово совпадают с finish-plans после
+нормализации CRLF/LF. В data-split тест и receipt совпадают с интеграцией;
+DATA_SPLIT.md отличается последующими уточнениями интеграции. Старые copies не
+переносились поверх актуального split. Их untracked-состояние сохранено.
+Ignored outputs/models/data/cache не являются незакоммиченным кодом: содержимое
+приватных результатов и аннотаций при аудите не читалось и в Git не добавлялось.
+
+## Найденный дизайн: что принято и что сохранено отдельно
+
+Untracked HTML/CSS исходной папки содержат полезную вёрстку Argon, но сопутствующий
+JS не содержит принятых исправлений отмены запросов, валидации JPEG и плеера.
+Поэтому **старый app.js не переносился**. В integration перенесены только HTML/CSS
+с адаптацией DOM к текущему JS; плеер остаётся одним, показывается до отправки,
+в результате перемещается рядом с событиями и возвращается при новой загрузке.
+В проверенном app.js добавлены только два DOM-поля и два перемещения плеера.
+Исходная untracked папка не изменялась; её дата не использовалась как доказательство
+актуальности. Снимки SHA256 исходных файлов:
+
+| Файл | SHA256 |
+|---|---|
+| index.html | `f2a86a7f4657843214d983e1b2ac8aa56e573180479e094b1bd83492027ec4d9` |
+| styles.css | `db7a4e37d7c5ab7827b7e935bae4955b0d91ce00fd6bfe20152a89eb5c552462` |
+| app.js, не перенесён | `8b0864987182ba32dd2bf9a10a25ae2ce0afd5b872875ae7aacdedf5e7ff7242` |
+
+Фактические проверки:
+
+- `node --check app/web/app.js` и `node --check app/web/tests/browser.js`: exit 0.
+- `python app/web/tests/serve.py --port 18765`, затем `/tests/browser.html`:
+  **42 PASS / 0 FAIL**. Сохранены прежние 39 требований, добавлены три ширины
+  390/1024/1440 px; проверка видимости учитывает CSS/родителей. Проверены реальные
+  DOM, декодирование синтетических JPEG/MOV, отмена/поздние ответы, повторная загрузка.
+- `python -m pytest tests/integration/test_web_api.py -q --tb=short`:
+  **1 passed, 3.04 s** вне песочницы — статика + живой HTTP API с тестовым analyzer.
+  Первый запуск в песочнице дал startup timeout, 1 failed за 63.08 s; тот же тест
+  прошёл вне неё без изменения кода. Причина первого timeout внутри песочницы не
+  локализована; неудачный запуск не засчитан как PASS.
+- Полный CPU-suite и GPU не повторялись. Backend, ML, config/catalog/readiness,
+  зависимости, split и квитанции split не менялись.
+- 52 ссылки JS на DOM разрешаются, повторяющихся id нет; 35 локальных ссылок
+  документации проверены. `git diff --check` без ошибок; хеши всех трёх исходных
+  untracked frontend-файлов остались прежними.
+
+Локальные свидетельства: `outputs/frontend-git-audit/` (browser-checks.txt,
+synthetic-result.png, web-api-unsandboxed.xml). Все медиа здесь синтетические;
+прогон UI не является настоящим inference или приёмкой качества.
+
+Дальнейшая разработка продукта продолжается в этом checkout. Принятый
+[план завершения](01_CURRENT_STATE_AND_FINISH_PLAN.md) не создаёт дополнительных
+владельцев; незавершённые ML и реальная приёмка остаются явно отдельными входами.

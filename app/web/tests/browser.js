@@ -14,7 +14,7 @@ async function until(predicate, message) {
 }
 let w, d, html, fixture, video;
 const el = id => d.getElementById(id);
-const visible = id => !el(id).classList.contains("hidden");
+const visible = id => el(id).getClientRects().length > 0;
 const click = id => el(id).click();
 const response = (data, status = 200) => Promise.resolve(new Response(JSON.stringify(data), {
   status, headers: {"Content-Type": "application/json"}
@@ -89,8 +89,10 @@ document.getElementById("run").onclick = async function () {
       payload.violations.push(second);
       api(payload); select();
       await until(() => el("localVideo").readyState >= 1, "Video metadata not decoded");
+      assert(visible("localVideo") && el("localVideo").muted, "Preview must be visible and muted before upload");
       click("startAnalysisBtn");
       await until(() => visible("resultSection"), "No positive result");
+      assert(visible("localVideo") && d.querySelectorAll("video").length === 1, "Result lost or duplicated the player");
       assert(el("resultEventsCount").textContent === "2", "Wrong event count");
       assert(d.querySelectorAll(".frame-card__img").length === 4, "Wrong frame count");
       assert(d.querySelector(".event-card__description").children.length === 1, "Unsafe HTML insertion");
@@ -114,6 +116,32 @@ document.getElementById("run").onclick = async function () {
       await until(() => visible("resultSection"), "Second upload failed");
       assert(el("resultFileName").textContent === "second.mov", "Old file name remains");
     });
+    for (const width of [390, 1024, 1440]) {
+      await test(`Вёрстка ${width}px: загрузка и результат без горизонтальной прокрутки`, async () => {
+        const previousWidth = iframe.style.width;
+        iframe.style.width = `${width}px`;
+        try {
+          const checkWidth = () => assert(d.documentElement.scrollWidth <= w.innerWidth + 1, "Horizontal overflow");
+          const frame = () => new Promise(resolve => w.requestAnimationFrame(resolve));
+          await frame(); checkWidth();
+          const payload = positive();
+          payload.violations = [payload.violations[0]];
+          payload.violations[0].timecode_sec = 1;
+          payload.violations[0].evidence_frames = [{...payload.violations[0].evidence_frames[0], timestamp_sec:1}];
+          api(payload); select("synthetic-" + "long-name-".repeat(12) + ".mov");
+          await until(() => el("localVideo").readyState >= 1, "Preview not loaded");
+          await frame(); checkWidth();
+          assert(visible("localVideo"), "Selected preview is hidden");
+          click("startAnalysisBtn");
+          await until(() => visible("resultSection"), "No result for layout check");
+          await frame(); checkWidth();
+          assert(visible("localVideo") && visible("violationsList"), "Result player/events are hidden");
+          click("newUploadBtn"); select();
+          await frame();
+          assert(visible("localVideo"), "Preview not restored for next upload");
+        } finally { iframe.style.width = previousWidth; }
+      });
+    }
     await test("failed не становится no_violation", async () => {
       await errorResult({job_id:"test-job", status:"failed"});
       assert(el("errorMessage").textContent.includes("не означает отсутствие"), "Missing explanation");

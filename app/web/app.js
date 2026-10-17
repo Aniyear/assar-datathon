@@ -89,6 +89,8 @@
     demoBanner: document.getElementById("demoBanner"),
     notice: document.getElementById("notice"),
     videoPanel: document.getElementById("videoPanel"),
+    videoHome: document.getElementById("videoHome"),
+    resultVideoSlot: document.getElementById("resultVideoSlot"),
     video: document.getElementById("localVideo"),
     videoMessage: document.getElementById("videoMessage"),
     processingHeading: document.getElementById("processingHeading"),
@@ -481,6 +483,7 @@
 
   // Сброс к начальному экрану выбора файла
   function resetToUploadScreen(keepSelectedFile) {
+    dom.videoHome.append(dom.videoPanel);
     invalidateRun();
     closeImageModal();
     dom.violationsList.textContent = "";
@@ -533,6 +536,7 @@
 
   // Отрисовка результата done (violation / no_violation)
   function renderDoneResult(jobData) {
+    dom.resultVideoSlot.append(dom.videoPanel);
     invalidateRun();
     hideError();
 
