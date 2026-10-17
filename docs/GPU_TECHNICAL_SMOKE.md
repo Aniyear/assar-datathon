@@ -1,8 +1,19 @@
-# Следующий технический GPU-прогон — ещё не выполнен
+# Технический GPU-прогон: инструкция и последующее состояние
+
+**Дополнение 17.10.2026:** по отдельному разрешению выполнен один прогон на
+`b1715e38cecd70b2fea7395594c59c30df0bc25e`, `call_timeout_sec=17`.
+Квитанция: `outputs/gpu-smoke/20261017-195607-8febcf/receipt.json`.
+Проверки связки, reuse, finish_reason, deadline/recovery/cleanup пройдены;
+обычные jobs завершились failed/UnassessableVideoError, поэтому реальный done/JPEG
+и качество не подтверждены. Фактический runtime-root —
+`C:\Users\aniya\Рабочий стол\assar-datathon\.worktrees\ml-portability-3060`,
+а не `../..`. Подробности границ и дальнейшая приёмка — [MVP_LAUNCH.md](MVP_LAUNCH.md).
+Ниже историческая инструкция подготовленного стенда. Сейчас GPU занят другим чатом;
+повторный запуск не назначен, readiness/validation/каталог не менялись.
 
 Точка входа: `scripts/validation/gpu_smoke.py`. Это отдельный тестовый стенд,
-не production entrypoint. В текущем задании запуск с `--run-gpu` запрещён.
-После отдельного разрешения использовать тот же зафиксированный integration commit.
+не production entrypoint. В текущей подготовке MVP запуск с `--run-gpu` запрещён.
+Для возможного нового согласованного запуска проверить commit и runtime-root заново.
 
 ## Команды из integration-cpu
 
