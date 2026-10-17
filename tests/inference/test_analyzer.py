@@ -107,11 +107,35 @@ def test_adjacent_windows_merge_distinct_kept(cfg, video, tmp_path):
     assert res.events[0].end_sec - res.events[0].start_sec >= 4.0
 
 
-def test_no_verified_category_gives_no_violation_with_limitation(cfg, video, tmp_path):
+def test_generic_observation_without_events_is_not_no_violation(cfg, video, tmp_path):
+    # B6 (MVP): other_notable_action не нарушение, но и не доказательство его отсутствия.
     responder = lambda idx: ok([{"category": "other_notable_action", "frame_indices": idx[:1], "description": "x"}])
+    with pytest.raises(UnassessableVideoError):
+        run(cfg, catalog(synthetic_rule()), responder, video, tmp_path)
+
+
+def test_generic_observation_next_to_verified_event_is_violation(cfg, video, tmp_path):
+    def responder(idx):
+        obs = [{"category": "other_notable_action", "frame_indices": idx[:1], "description": "g"}]
+        if idx[0] == 0:
+            obs.append({"category": "cash_bag_handover", "frame_indices": idx[1:3], "description": "v"})
+        return ok(obs)
     res, _, _ = run(cfg, catalog(synthetic_rule()), responder, video, tmp_path)
-    assert res.verdict == "no_violation" and res.events == []
+    assert res.verdict == "violation" and [e.observed_fact for e in res.events] == ["v"]
     assert any("generic observations" in x for x in res.limitations)
+
+
+def test_clean_video_is_no_violation(cfg, video, tmp_path):
+    res, _, _ = run(cfg, catalog(synthetic_rule()), lambda idx: ok(), video, tmp_path)
+    assert res.verdict == "no_violation" and res.events == []
+
+
+@pytest.mark.parametrize("text", ["", "   ", "\n\t "])
+def test_empty_observation_text_is_invalid(cfg, video, tmp_path, text):
+    # B5: без индивидуального наблюдения событие не формируется и общий текст не подставляется.
+    responder = lambda idx: ok([{"category": "cash_bag_handover", "frame_indices": idx[:1], "description": text}])
+    with pytest.raises(InvalidAnalysisResultError):
+        run(cfg, catalog(synthetic_rule()), responder, video, tmp_path)
 
 
 def test_unsupported_candidate_category_is_not_no_violation(cfg, video, tmp_path):

@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
@@ -47,18 +48,24 @@ def server_command(model_cfg: dict[str, Any], repo_root: Path, port: int) -> lis
 
 
 def create_analyzer(endpoint: str, model_cfg: dict[str, Any], catalog: RuleCatalog,
-                    repo_root: Path) -> VideoAnalyzer:
+                    repo_root: Path, call_timeout_sec: float = 120.0) -> VideoAnalyzer:
     """Worker, один раз после health сервера supervisor'а. Возвращает analyze_video для этого endpoint.
+
+    call_timeout_sec — предел одного запроса к модели (Settings.model_call_timeout_sec); каждый запрос
+    дополнительно ограничен остатком общего deadline задания.
 
     Ошибки инициализации (нет verified-правил, несовместимый config, сервер не отвечает) поднимаются
     как есть — worker сообщит init_failed, и supervisor не откроет приём.
     """
+    if (isinstance(call_timeout_sec, bool) or not isinstance(call_timeout_sec, (int, float))
+            or not math.isfinite(call_timeout_sec) or call_timeout_sec <= 0):
+        raise ModelUnavailableError("call_timeout_sec must be a finite positive number")
     cfg = _config(model_cfg, repo_root)
     try:
         client = LlamaClient(endpoint)
     except ValueError as e:
         raise ModelUnavailableError("model endpoint must be http://127.0.0.1:<port>") from e
-    analyzer = Analyzer(cfg, catalog, client)
+    analyzer = Analyzer(cfg, catalog, client, call_timeout_sec=float(call_timeout_sec))
     if not client.health(timeout=HEALTH_TIMEOUT_SEC):
         raise ModelUnavailableError("model server is not healthy")
 

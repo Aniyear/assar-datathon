@@ -84,8 +84,9 @@ def sample_frames(video: Path, out_dir: Path, step_sec: float, info: VideoInfo, 
     """Выбирает реальные кадры не чаще одного на step_sec секунд по всему ролику.
 
     Время кадра — PTS декодированного кадра из showinfo, а не номинальный FPS. Без -copyts FFmpeg
-    уже отсчитывает PTS от start_time файла, поэтому повторно его не вычитаем. PTS вне
-    [0, duration] — ошибка декодирования, а не значение для clamp.
+    уже отсчитывает PTS от start_time файла, поэтому повторно его не вычитаем. Декодируется только
+    диапазон [0, duration) контейнера (-t); PTS вне [0, duration] после этого — ошибка декодирования,
+    а не значение для clamp.
     FFmpeg применяет rotation metadata автоматически (autorotate по умолчанию).
     """
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -97,7 +98,11 @@ def sample_frames(video: Path, out_dir: Path, step_sec: float, info: VideoInfo, 
     else:
         graph = f"[0:v]{sel}[e]"
         maps = ["-map", "[e]", "-fps_mode", "vfr", "-q:v", "2", str(out_dir / "e_%05d.jpg")]
-    cmd = [ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "info", "-xerror", "-i", str(video),
+    # -t <duration> на входе: только представленный диапазон контейнера. В MOV с VFR и B-frames
+    # edit list бывает короче последних декодируемых кадров (см. README, B8); такие кадры не входят
+    # в длительность ролика, которую видит backend/плеер, и не используются как доказательства.
+    cmd = [ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "info", "-xerror",
+           "-t", f"{info.duration_sec:.6f}", "-i", str(video),
            "-filter_complex", graph, *maps, "-y"]
     r = _run(cmd, timeout)
     if r.returncode != 0:

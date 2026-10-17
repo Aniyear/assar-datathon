@@ -169,8 +169,7 @@ class Analyzer:
                         unsupported += 1
                     continue
                 fr = sorted({by_index[i] for i in o["frame_indices"]}, key=lambda f: f.pts_sec)
-                fact = " ".join(o["description"].split())
-                observations.append(_Obs(o["category"], fr, [fact] if fact else []))
+                observations.append(_Obs(o["category"], fr, [" ".join(o["description"].split())]))
         timings["inference"] = (time.monotonic() - t) * 1000
         if unassessable == len(wins):
             raise UnassessableVideoError("all windows reported as visually unassessable")
@@ -180,6 +179,9 @@ class Analyzer:
                 raise InvalidAnalysisResultError("observations in candidate categories without a verified rule")
             if unassessable:
                 raise UnassessableVideoError("part of the video is unassessable and no verified event was found")
+            if generic:
+                # MVP: неклассифицированное действие не доказывает отсутствие нарушения (и не является им).
+                raise UnassessableVideoError("generic observations without a verified rule; no conclusion")
 
         t = time.monotonic()
         events = []
@@ -188,10 +190,7 @@ class Analyzer:
             events.append(Event(
                 event_id=f"ev-{n:03d}", type_id=rule.type_id, type_name_ru=rule.type_name_ru,
                 start_sec=o.start, end_sec=o.end, timecode_sec=o.start,
-                observed_fact="; ".join(o.facts) or (
-                    f"Модель отметила категорию {o.category} на кадрах "
-                    + ", ".join(f"{f.pts_sec:.1f} с" for f in o.frames)),
-                rule_id=rule.rule_id,
+                observed_fact="; ".join(o.facts), rule_id=rule.rule_id,
                 evidence=[LocalEvidence(timestamp_sec=f.pts_sec, local_jpeg_path=str(f.evidence_path.resolve()))
                           for f in _pick_evidence(o.frames)]))
         limitations = [f"sampling step {self.cfg.step_sec:g}s, window {self.cfg.window_sec:g}s: "

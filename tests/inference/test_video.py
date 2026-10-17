@@ -1,4 +1,5 @@
 """Декодирование и таймкоды на синтетическом видео FFmpeg (без данных датасета)."""
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -72,6 +73,42 @@ def test_vfr_uses_actual_frame_times(tmp_path):
     assert all(abs((t - 2.0) * 10 - round((t - 2.0) * 10)) < 1e-3 for t in late)
     assert all(b - a >= 0.25 - 1e-3 for a, b in zip([f.pts_sec for f in frames], [f.pts_sec for f in frames][1:]))
     assert late and max(late) <= info.duration_sec
+
+
+def _vfr(path: Path, extra: list[str] = ()) -> Path:
+    # 0–2 с при 30 FPS, далее кадры каждые 0,1 с; последний кадр — PTS 7,9 с
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc=size=160x284:rate=30:duration=4",
+                    "-vf", "setpts='if(lt(N,60),N/30,2+(N-60)/10)/TB'", "-fps_mode", "vfr",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", *extra, "-y", str(path)], check=True)
+    return path
+
+
+def _all_pts(video: Path) -> list[float]:
+    r = subprocess.run(["ffmpeg", "-hide_banner", "-nostdin", "-i", str(video), "-vf", "showinfo", "-f", "null",
+                        "-"], capture_output=True, text=True, check=True)
+    return [float(x) for x in re.findall(r"pts_time:([-\d.]+)", r.stderr)]
+
+
+def test_vfr_bframes_tail_beyond_container_duration(tmp_path):
+    """B8: в MOV с VFR и B-frames edit list короче последних кадров; берём только представленный диапазон."""
+    video = _vfr(tmp_path / "vfr_b.mov")
+    info = probe(video)
+    tail = [t for t in _all_pts(video) if t >= info.duration_sec]
+    frames = sample_frames(video, tmp_path / "f", 0.05, info)
+    pts = [f.pts_sec for f in frames]
+    assert all(0 <= t < info.duration_sec for t in pts)
+    assert max(pts) >= info.duration_sec - 0.1 - 1e-3  # покрытие до конца представленного диапазона
+    if tail:  # проявляется в FFmpeg 7.1.1 и N-1226xx/N-1230xx; хвост не попадает в выборку
+        assert not set(round(t, 3) for t in tail) & set(round(t, 3) for t in pts)
+
+
+def test_vfr_without_bframes_keeps_last_frame(tmp_path):
+    video = _vfr(tmp_path / "vfr_nob.mov", ["-bf", "0"])
+    info = probe(video)
+    last = max(_all_pts(video))
+    assert last <= info.duration_sec
+    frames = sample_frames(video, tmp_path / "f", 0.05, info)
+    assert abs(frames[-1].pts_sec - last) < 1e-3
 
 
 def test_corrupt_video_raises(tmp_path):
