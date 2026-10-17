@@ -17,7 +17,7 @@ from app.contracts import (SCHEMA_VERSION, AnalysisError, AnalysisResult, Analys
                            RuleCatalog, UnassessableVideoError, remaining_seconds, validate_analysis_for_video,
                            validate_analysis_rules)
 
-from . import prompts
+from . import conditions, facts_prompt, prompts
 from .config import ModelConfig, load_model_config, load_rule_catalog
 from .video import Frame, probe, sample_frames, windows
 from .vlm import LlamaClient
@@ -77,11 +77,21 @@ def _pick_evidence(frames: list[Frame]) -> list[Frame]:
 class Analyzer:
     def __init__(self, cfg: ModelConfig, catalog: RuleCatalog, client: LlamaClient, *,
                  call_timeout_sec: float = 120.0, ffmpeg: str = "ffmpeg", ffprobe: str = "ffprobe"):
-        if cfg.prompt_version != prompts.PROMPT_VERSION:
-            raise AnalyzerNotReadyError(f"config prompt {cfg.prompt_version} != code {prompts.PROMPT_VERSION}")
+        # Режим выбирается версией промпта в config: obs-v0.1 (категории) или cash01-facts-v1 (факты/условия).
+        if cfg.prompt_version == facts_prompt.FACTS_PROMPT_VERSION:
+            self.mode = "facts"
+            verified = [r for r in catalog.rules if r.status == "verified"]
+            if [r.type_id for r in verified] != [facts_prompt.SUPPORTED_TYPE_ID]:
+                raise AnalyzerNotReadyError(f"{facts_prompt.FACTS_PROMPT_VERSION} needs exactly one verified rule "
+                                            f"with type_id {facts_prompt.SUPPORTED_TYPE_ID!r}")
+            self.rules = {verified[0].type_id: verified[0]}
+        elif cfg.prompt_version == prompts.PROMPT_VERSION:
+            self.mode = "observations"
+            self.rules = verified_rules_by_type(catalog)
+        else:
+            raise AnalyzerNotReadyError(f"unsupported prompt version {cfg.prompt_version}")
         self.cfg = cfg
         self.catalog = catalog
-        self.rules = verified_rules_by_type(catalog)
         self.client = client
         self.call_timeout_sec = call_timeout_sec
         self.ffmpeg, self.ffprobe = ffmpeg, ffprobe
@@ -91,10 +101,10 @@ class Analyzer:
 
     # --- стадии ---------------------------------------------------------------------------------------
 
-    def _ask(self, win: list[Frame], deadline: float) -> dict:
+    def _ask(self, win: list[Frame], deadline: float, pm=prompts) -> dict:
         idx = [f.index for f in win]
         timeout = min(self.call_timeout_sec, remaining_seconds(deadline))
-        resp = self.client.chat(prompts.window_parts(win), prompts.schema(idx), max_tokens=self.cfg.max_tokens,
+        resp = self.client.chat(pm.window_parts(win), pm.schema(idx), max_tokens=self.cfg.max_tokens,
                                 timeout=timeout, temperature=self.cfg.temperature, top_k=self.cfg.top_k,
                                 seed=self.cfg.seed, cache_prompt=self.cfg.cache_prompt)
         remaining_seconds(deadline)
@@ -105,7 +115,7 @@ class Analyzer:
             obj = json.loads(choice["message"].get("content") or "")
         except (ValueError, TypeError) as e:
             raise InvalidAnalysisResultError("model output is not JSON") from e
-        if not prompts.validate(obj, idx):
+        if not pm.validate(obj, idx):
             raise InvalidAnalysisResultError("model output violates observation schema")
         return obj
 
@@ -149,6 +159,8 @@ class Analyzer:
                                timeout=min(DECODE_TIMEOUT_SEC, remaining_seconds(deadline_monotonic)))
         timings["decode"] = (time.monotonic() - t) * 1000
         remaining_seconds(deadline_monotonic)
+        if self.mode == "facts":
+            return self._analyze_facts(info, frames, job_dir, deadline_monotonic, timings, t_start)
 
         t = time.monotonic()
         wins = windows(frames, self.cfg.window_sec)
@@ -205,6 +217,53 @@ class Analyzer:
         if generic:
             limitations.append(f"{generic} generic observations (no rule category) were not reported")
         timings["postprocess"] = (time.monotonic() - t) * 1000
+        return self._finish(events, limitations, info, job_dir, deadline_monotonic, timings, t_start)
+
+    def _analyze_facts(self, info, frames: list[Frame], job_dir: Path, deadline_monotonic: float,
+                       timings: dict[str, float], t_start: float) -> AnalysisResult:
+        """CASH-01: покадровые факты от модели по окнам, условия нормы — conditions.evaluate_cash01 по всему ролику."""
+        t = time.monotonic()
+        by_index = {f.index: f for f in frames}
+        timeline: list[conditions.FrameFacts] = []
+        for win in windows(frames, self.cfg.window_sec):
+            obj = self._ask(win, deadline_monotonic, pm=facts_prompt)
+            for e in obj["frames"]:
+                f = by_index[e["index"]]
+                timeline.append(conditions.FrameFacts(e["index"], f.pts_sec, e["cashier_at_workplace"],
+                                                      e["client_at_counter"], e["service_in_progress"]))
+        timings["inference"] = (time.monotonic() - t) * 1000
+        t = time.monotonic()
+        outcome = conditions.evaluate_cash01(timeline)
+        unknown = sum(1 for x in timeline if "unknown" in (x.cashier, x.client))
+        if not outcome.events and outcome.insufficient:
+            # Неизвестное не превращается ни в нарушение, ни в его отсутствие.
+            raise UnassessableVideoError("CASH-01 conditions could not be established for an absence interval")
+        rule = self.rules[facts_prompt.SUPPORTED_TYPE_ID]
+        events = []
+        for n, c in enumerate(sorted(outcome.events, key=lambda c: c.absent[0].pts_sec), start=1):
+            ev_frames = [by_index[c.pre.index], by_index[c.absent[len(c.absent) // 2].index], by_index[c.post.index]]
+            events.append(Event(
+                event_id=f"ev-{n:03d}", type_id=rule.type_id, type_name_ru=rule.type_name_ru,
+                start_sec=c.pre.pts_sec, end_sec=c.post.pts_sec, timecode_sec=c.absent[0].pts_sec,
+                observed_fact=conditions.describe(c), rule_id=rule.rule_id,
+                evidence=[LocalEvidence(timestamp_sec=f.pts_sec, local_jpeg_path=str(f.evidence_path.resolve()))
+                          for f in ev_frames]))
+        limitations = [f"coverage: CASH-01 only ({facts_prompt.FACTS_PROMPT_VERSION}); other violation types are "
+                       "not analysed",
+                       f"sampling step {self.cfg.step_sec:g}s: absences shorter than "
+                       f"{conditions.MIN_ABSENCE_FRAMES} sampled frames are ignored",
+                       "unfinished service is inferred from visible service before and after the absence with the "
+                       "client continuously at the counter; role and identity are not established",
+                       f"{unknown}/{len(timeline)} frames with unknown cashier/client presence"]
+        if outcome.insufficient:
+            limitations.append(f"{len(outcome.insufficient)} absence intervals not established")
+        if outcome.excluded:
+            limitations.append(f"{len(outcome.excluded)} absence intervals excluded by counterexample conditions")
+        timings["postprocess"] = (time.monotonic() - t) * 1000
+        return self._finish(events, limitations, info, job_dir, deadline_monotonic, timings, t_start)
+
+    def _finish(self, events, limitations, info, job_dir: Path, deadline_monotonic: float,
+                timings: dict[str, float], t_start: float) -> AnalysisResult:
         timings["total"] = (time.monotonic() - t_start) * 1000
         try:
             result = AnalysisResult(schema_version=SCHEMA_VERSION, verdict="violation" if events else "no_violation",
