@@ -159,6 +159,12 @@ def main() -> int:
                     help="v1: CASH-01; v2: CASH-01/02, COLLECT-02 (6 полей на кадр); v3: то же, действия списком")
     ap.add_argument("--max-tokens", type=int, default=0, help="0 = 512 для v1/v3, 1024 для v2")
     ap.add_argument("--call-timeout", type=float, default=120.0)
+    # Эксперименты с визуальным бюджетом и окнами (production берёт значения из configs/model.yaml)
+    ap.add_argument("--image-max-tokens", type=int, default=0, help="0 = как в manifest (256)")
+    ap.add_argument("--image-min-tokens", type=int, default=0, help=">0 — увеличивать кадры до этого бюджета")
+    ap.add_argument("--window", type=float, default=0, help="длина окна, с (0 = из config)")
+    ap.add_argument("--step", type=float, default=0, help="шаг кадров, с (0 = из config)")
+    ap.add_argument("--ctx", type=int, default=0, help="контекст llama-server (0 = из manifest)")
     ap.add_argument("--budget-sec", type=float, default=240.0)
     ap.add_argument("--out", type=Path, default=ROOT / "outputs" / "dev_eval")
     args = ap.parse_args()
@@ -180,9 +186,18 @@ def main() -> int:
         out = run_root / label
         out.mkdir(parents=True, exist_ok=True)
         cfg = dataclasses.replace(base, prompt_version=prompt_version, max_tokens=args.max_tokens)
+        if args.window or args.step:
+            cfg = dataclasses.replace(cfg, window_sec=args.window or cfg.window_sec, step_sec=args.step or cfg.step_sec)
         if variant:
             v = manifest["variants"][variant]
-            cfg = dataclasses.replace(cfg, server=server_config(manifest, variant, args.platform), model_id=v["repo"],
+            scfg = server_config(manifest, variant, args.platform)
+            if args.image_max_tokens:
+                scfg.image_max_tokens = args.image_max_tokens
+            if args.image_min_tokens:
+                scfg.extra_args = list(scfg.extra_args) + ["--image-min-tokens", str(args.image_min_tokens)]
+            if args.ctx:
+                scfg.ctx = args.ctx
+            cfg = dataclasses.replace(cfg, server=scfg, model_id=v["repo"],
                                       model_revision=v["revision"], quantization=v["weights"]["quantization"],
                                       mmproj_quantization=v["mmproj"]["quantization"])
         else:
@@ -192,7 +207,9 @@ def main() -> int:
         mon = VramMonitor(args.gpu)
         mon.start()
         server = None
-        rep = {"model": cfg.revision_label, "gpu": before["name"], "vram_before_mib": before["used_mib"]}
+        rep = {"model": cfg.revision_label, "gpu": before["name"], "vram_before_mib": before["used_mib"],
+               "visual": {"image_max_tokens": cfg.server.image_max_tokens, "extra_args": cfg.server.extra_args,
+                          "ctx": cfg.server.ctx, "window_sec": cfg.window_sec, "step_sec": cfg.step_sec}}
         try:
             if variant:
                 server = LlamaServer(cfg.server, out / "llama-server.log")
