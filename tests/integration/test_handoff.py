@@ -1,7 +1,6 @@
 """CPU integration probes. All observations, images and rules here are SYNTHETIC.
 
-Strict xfails are unresolved handoff blockers, not evidence of readiness.
-Run --runxfail to expose their failing assertions when handing back to owners.
+Fixed handoff regressions remain ordinary tests; no xfail masks a requirement.
 """
 from __future__ import annotations
 
@@ -148,20 +147,18 @@ def test_unreadable_window_cannot_prove_no_violation(synthetic_analysis):
         synthetic_analysis([reply(), reply(assessable=False), reply()])
 
 
-@pytest.mark.xfail(strict=True, reason="B5: empty observation is replaced with a generic category statement")
 def test_empty_individual_observation_is_rejected(synthetic_analysis):
     with pytest.raises(InvalidAnalysisResultError):
         synthetic_analysis([reply("   "), reply(), reply()])
 
 
-@pytest.mark.xfail(strict=True, reason="B6: generic other_notable_action still becomes no_violation")
 def test_unmapped_observation_cannot_prove_no_violation(synthetic_analysis):
     with pytest.raises(UnassessableVideoError):
         synthetic_analysis([reply("SYNTHETIC unmapped", category="other_notable_action"), reply(), reply()])
 
 
 def test_unsupported_candidate_observation_is_rejected(synthetic_analysis):
-    # 45f00ca fixes this candidate-category case, but not the original generic case above.
+    # Candidate-category and generic observations keep distinct failure types.
     with pytest.raises(InvalidAnalysisResultError):
         synthetic_analysis([reply("SYNTHETIC candidate", category="cash_bag_opened"), reply(), reply()])
 

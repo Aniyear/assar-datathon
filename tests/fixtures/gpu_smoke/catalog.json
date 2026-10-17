@@ -1,0 +1,80 @@
+{
+  "schema_version": "0.1",
+  "rules": [
+    {
+      "rule_id": "SYNTH-GPU-01",
+      "type_id": "cashier_leaves_during_service",
+      "type_name_ru": "Синтетический тип (тест)",
+      "source_title": "SYNTHETIC GPU SMOKE ONLY - no legal authority",
+      "source_url": "https://example.invalid/gpu-smoke",
+      "clause": null,
+      "effective_version_checked_at": "2026-10-17",
+      "scope": "TEST ONLY: generated color pattern; never production",
+      "observable_condition": "TEST ONLY category plumbing",
+      "required_context": [],
+      "counterexamples": [],
+      "claim_template_ru": "СИНТЕТИЧЕСКОЕ ТЕСТОВОЕ ПРАВИЛО; НЕ ПРАВОВОЕ ОСНОВАНИЕ",
+      "status": "verified"
+    },
+    {
+      "rule_id": "SYNTH-GPU-02",
+      "type_id": "cash_counted_after_client_left",
+      "type_name_ru": "Синтетический тип (тест)",
+      "source_title": "SYNTHETIC GPU SMOKE ONLY - no legal authority",
+      "source_url": "https://example.invalid/gpu-smoke",
+      "clause": null,
+      "effective_version_checked_at": "2026-10-17",
+      "scope": "TEST ONLY: generated color pattern; never production",
+      "observable_condition": "TEST ONLY category plumbing",
+      "required_context": [],
+      "counterexamples": [],
+      "claim_template_ru": "СИНТЕТИЧЕСКОЕ ТЕСТОВОЕ ПРАВИЛО; НЕ ПРАВОВОЕ ОСНОВАНИЕ",
+      "status": "verified"
+    },
+    {
+      "rule_id": "SYNTH-GPU-03",
+      "type_id": "cash_left_outside_storage",
+      "type_name_ru": "Синтетический тип (тест)",
+      "source_title": "SYNTHETIC GPU SMOKE ONLY - no legal authority",
+      "source_url": "https://example.invalid/gpu-smoke",
+      "clause": null,
+      "effective_version_checked_at": "2026-10-17",
+      "scope": "TEST ONLY: generated color pattern; never production",
+      "observable_condition": "TEST ONLY category plumbing",
+      "required_context": [],
+      "counterexamples": [],
+      "claim_template_ru": "СИНТЕТИЧЕСКОЕ ТЕСТОВОЕ ПРАВИЛО; НЕ ПРАВОВОЕ ОСНОВАНИЕ",
+      "status": "verified"
+    },
+    {
+      "rule_id": "SYNTH-GPU-04",
+      "type_id": "cash_bag_handover",
+      "type_name_ru": "Синтетический тип (тест)",
+      "source_title": "SYNTHETIC GPU SMOKE ONLY - no legal authority",
+      "source_url": "https://example.invalid/gpu-smoke",
+      "clause": null,
+      "effective_version_checked_at": "2026-10-17",
+      "scope": "TEST ONLY: generated color pattern; never production",
+      "observable_condition": "TEST ONLY category plumbing",
+      "required_context": [],
+      "counterexamples": [],
+      "claim_template_ru": "СИНТЕТИЧЕСКОЕ ТЕСТОВОЕ ПРАВИЛО; НЕ ПРАВОВОЕ ОСНОВАНИЕ",
+      "status": "verified"
+    },
+    {
+      "rule_id": "SYNTH-GPU-05",
+      "type_id": "cash_bag_opened",
+      "type_name_ru": "Синтетический тип (тест)",
+      "source_title": "SYNTHETIC GPU SMOKE ONLY - no legal authority",
+      "source_url": "https://example.invalid/gpu-smoke",
+      "clause": null,
+      "effective_version_checked_at": "2026-10-17",
+      "scope": "TEST ONLY: generated color pattern; never production",
+      "observable_condition": "TEST ONLY category plumbing",
+      "required_context": [],
+      "counterexamples": [],
+      "claim_template_ru": "СИНТЕТИЧЕСКОЕ ТЕСТОВОЕ ПРАВИЛО; НЕ ПРАВОВОЕ ОСНОВАНИЕ",
+      "status": "verified"
+    }
+  ]
+}
