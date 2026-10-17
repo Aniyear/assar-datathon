@@ -45,7 +45,7 @@ class FakeLlama:
             def do_POST(self):
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 texts = [c["text"] for c in body["messages"][0]["content"] if c["type"] == "text"]
-                idx = [int(m.group(1)) for t in texts for m in [re.match(r"Frame (\d+), t=", t)] if m]
+                idx = [int(m.group(1)) for t in texts for m in [re.match(r"(?:Frame|Crop) (\d+), t=", t)] if m]
                 outer.calls += 1
                 r = outer.responder(idx)
                 if r[0] == "sleep":
