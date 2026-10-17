@@ -36,6 +36,13 @@ def create(endpoint: str | None, control: str) -> object:
         if mode == "hang":
             while True:
                 time.sleep(1)
+        if mode == "hang_child":  # A decoder-like descendant, then hang.
+            import subprocess
+            child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)"])
+            with open(Path(control).with_name("worker_child.pid"), "a", encoding="utf-8") as f:
+                f.write(f"{child.pid}\n")
+            while True:
+                time.sleep(1)
         if mode == "crash":
             os._exit(3)
         if mode == "decode_error":
@@ -64,13 +71,21 @@ def create(endpoint: str | None, control: str) -> object:
 
 
 def server_main() -> None:
-    """Fake llama-server: /health ok; spawns one grandchild to test tree cleanup."""
+    """Fake llama-server: /health ok; spawns one grandchild to test tree cleanup.
+
+    Appends "<pid> <grandchild pid>" per start to the pid file. If a file
+    ``<pid file>.delay`` exists, waits that many seconds before serving.
+    """
     import http.server
     import subprocess
 
     port, pid_file = int(sys.argv[2]), Path(sys.argv[3])
     child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)"])
-    pid_file.write_text(f"{os.getpid()} {child.pid}", encoding="utf-8")
+    with pid_file.open("a", encoding="utf-8") as f:
+        f.write(f"{os.getpid()} {child.pid}\n")
+    delay = pid_file.with_name(pid_file.name + ".delay")
+    if delay.exists():
+        time.sleep(float(delay.read_text(encoding="utf-8")))
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802

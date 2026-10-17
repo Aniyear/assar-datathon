@@ -14,7 +14,8 @@ $env:ASSAR_API_KEY = (& .\.venv\Scripts\python.exe -c "import secrets; print(sec
 (файловая блокировка). FFmpeg/ffprobe должны быть в PATH.
 
 Production-старт **отклоняется** (lifespan error с перечнем причин), пока нет:
-`configs/model.yaml` со `status: "ready"` и всеми `validation: true`; ≥1 `verified`
+`configs/model.yaml` со `status: "ready"`, точным набором трёх `validation`-флагов
+`true` и неизменными типами/флагами безопасности (см. ML_INTERFACE.md); ≥1 `verified`
 правила в `app/rules/catalog.json`; модуля `app.inference.service`; успешного
 `check_runtime`. Сейчас старт отклоняется — это ожидаемо. Demo/mock-режима нет.
 
@@ -40,7 +41,17 @@ Production-старт **отклоняется** (lifespan error с перечн
 
 Supervisor (`app/jobs/supervisor.py`): запускает llama-server и worker до приёма,
 каждый — в отдельном Windows Job Object (kill-on-close: при смерти backend дерево
-процессов завершает ОС). Watchdog по deadline; при зависании, смерти worker,
+процессов завершает ОС). llama-server создаётся suspended и возобновляется уже в job;
+worker ничего не импортирует и не запускает до сигнала `go` после привязки.
+Остановка считается подтверждённой, только когда корень завершён и в job нет
+живых процессов; иначе handles сохраняются, состояние BROKEN, новый runtime не
+запускается. `close()` необратим (STOPPED), все ожидания его учитывают, start/stop
+процессов сериализованы. Сообщения worker читает отдельный поток — зависший
+`recv` не блокирует watchdog.
+
+Проверка загрузки (`probe_mov`): ffprobe и ffmpeg делят один абсолютный deadline
+`min(now+30, request_deadline-5)`, результат после deadline отклоняется; каждый
+инструмент — в своём Job Object, все они завершаются при остановке сервиса. Watchdog по deadline; при зависании, смерти worker,
 `ModelUnavailableError`/`AnalysisTimeoutError`/прочих исключениях — job failed,
 остановка worker **и** сервера с подтверждением, перезапуск (2 попытки), до health
 приём закрыт. `DecodeError`/`UnassessableVideoError`/`InvalidAnalysisResultError`

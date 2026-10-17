@@ -50,7 +50,7 @@ def _live(tmp_path: Path, control: Path, with_server: bool = False, web_dir: Pat
 
 
 def _server_pids(tmp_path: Path) -> tuple[int, int]:
-    server, child = (tmp_path / "server.pid").read_text(encoding="utf-8").split()
+    server, child = (tmp_path / "server.pid").read_text(encoding="utf-8").splitlines()[-1].split()
     return int(server), int(child)
 
 

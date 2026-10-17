@@ -1,6 +1,7 @@
 """Isolated analysis worker process (multiprocessing spawn). Owned by the supervisor.
 
-Messages parent -> child: ("job", video_path, job_dir, deadline_monotonic).
+Messages parent -> child: ("go",) once the worker is inside its Job Object, then
+("job", video_path, job_dir, deadline_monotonic).
 Messages child -> parent: ("ready",), ("init_failed", code), ("ok", result_dict),
 ("error", code). Codes are exception class names; no message text or traceback.
 """
@@ -19,6 +20,11 @@ def load_factory(dotted: str):
 def worker_main(conn, factory: str, kwargs: dict) -> None:
     if hasattr(os, "setsid"):
         os.setsid()  # POSIX: own process group so the supervisor can kill decoders too.
+    try:  # Do nothing (no imports, no children) before the owner confirms the job.
+        if conn.recv() != ("go",):
+            return
+    except (EOFError, OSError):
+        return
     from app.settings import configure_offline_environment
     configure_offline_environment()  # Before any ML import.
     try:
