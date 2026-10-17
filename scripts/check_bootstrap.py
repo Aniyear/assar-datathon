@@ -22,7 +22,7 @@ def main() -> None:
                 validate_done_for_video(result, duration_sec=5.0)
     catalog = RuleCatalog.model_validate_json((ROOT / "app/rules/catalog.json").read_text(encoding="utf-8"))
     print(f"Contract 0.1: 5 synthetic fixtures valid; verified rules: {sum(r.status == 'verified' for r in catalog.rules)}.")
-    print("This checkout contains shared bootstrap only; no service or inference was run.")
+    print("This check runs shared contracts only; no service or inference was run.")
 
 
 if __name__ == "__main__":
