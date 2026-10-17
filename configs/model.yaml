@@ -1,17 +1,79 @@
-# Unconfigured by design. No weights have been selected, downloaded or measured.
-# Integrator fills exact revisions, hashes and runtime lock after Omar's handoff.
-schema_version: '0.1'
-status: not_configured
-model_id: null
-model_revision: null
-local_weights_dir: null
-weights_sha256: null
-processor_revision: null
-runtime_lock: null
-quantization: null
-license_path: null
-local_files_only: true
-trust_remote_code: false
-external_inference: false
-audio_enabled: false
-face_recognition_enabled: false
+{
+  "schema_version": "0.1",
+  "status": "pending_integration_and_3060_validation",
+  "source_commit": "c32964a318d47a0ce7648a697044b48c2e40c40a",
+  "source_files": [
+    "app/inference/fetch_runtime.py",
+    "app/inference/vlm.py",
+    "app/inference/bench_baseline.py",
+    "app/inference/README.md",
+    "app/inference/prompts.py"
+  ],
+  "backend": "llama-server",
+  "model_id": "Qwen/Qwen3-VL-2B-Instruct-GGUF",
+  "model_revision": "52d6c8ffea26cc873ac5ad116f8631268d7eb503",
+  "base_model_id": "Qwen/Qwen3-VL-2B-Instruct",
+  "base_model_revision": "89644892e4d85e24eaac8bacfd4f463576704203",
+  "runtime": {
+    "tag": "b11669",
+    "commit": "620d2225c",
+    "version": "0.7.0-dev",
+    "build": "win-cuda-12.4-x64",
+    "server_bin": "models/llama.cpp-b11669/llama-server.exe",
+    "archive_sha256": "c2da1f73ed176ae093ac5aceb978a7b167a16113f6d74c6789eeaee2135cb8dc",
+    "cuda_archive_sha256": "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6",
+    "server_sha256_reported": "6a4635aeb35656153d4bfeeddf761d24ed84aada9c9108d580737cbed465141b"
+  },
+  "weights": {
+    "path": "models/qwen3-vl-2b/Qwen3VL-2B-Instruct-Q8_0.gguf",
+    "quantization": "Q8_0",
+    "sha256": "1e8db19207c8ce0733ddd78c2eff8a9e22c27c82f4443df94c25792ed8fe04f2",
+    "bytes": 1834427424
+  },
+  "mmproj": {
+    "path": "models/qwen3-vl-2b/mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf",
+    "quantization": "Q8_0",
+    "sha256": "f9a68fabba69c3b81e153367b2c7521030b0fa8bb0de400c9599c8e6725f9c82",
+    "bytes": 445053216
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 0,
+    "ctx": 8192,
+    "n_gpu_layers": 99,
+    "parallel": 1,
+    "image_max_tokens": 256,
+    "offline": true,
+    "no_webui": true,
+    "jinja": true,
+    "extra_args": []
+  },
+  "generation": {
+    "max_tokens": 384,
+    "temperature": 0.0,
+    "top_k": 1,
+    "seed": 0,
+    "cache_prompt": false,
+    "response_format": "json_schema",
+    "prompt_version": "obs-v0.1"
+  },
+  "sampling": {
+    "step_sec": 1.0,
+    "window_sec": 10.0,
+    "model_height": 0
+  },
+  "process_owner": "service_supervisor",
+  "reuse_between_jobs": true,
+  "external_inference": false,
+  "audio_enabled": false,
+  "face_recognition_enabled": false,
+  "license_paths": [
+    "models/llama.cpp-b11669/LICENSE",
+    "models/qwen3-vl-2b/BASE_MODEL_CARD.md"
+  ],
+  "validation": {
+    "weights_checked_on_this_host": false,
+    "gpu_3060_measured": false,
+    "analyze_video_implemented": false
+  }
+}

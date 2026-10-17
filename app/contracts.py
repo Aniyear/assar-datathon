@@ -9,6 +9,7 @@ import base64
 import binascii
 from io import BytesIO
 import math
+import time
 from pathlib import Path
 from typing import Annotated, Literal, Protocol
 import warnings
@@ -249,25 +250,52 @@ class AnalysisError(RuntimeError):
 
 
 class DecodeError(AnalysisError):
-    pass
+    """Input/probe/decode failed; chained technical detail stays local."""
 
 
 class ModelUnavailableError(AnalysisError):
-    pass
+    """Owned llama-server is absent, unhealthy, disconnected or crashed."""
 
 
 class AnalysisTimeoutError(AnalysisError):
-    pass
+    """Stage timeout or absolute deadline expired; supervisor cancels owned work."""
 
 
 class UnassessableVideoError(AnalysisError):
-    pass
+    """Entire video is visually unassessable; not a third public verdict."""
 
 
 class InvalidAnalysisResultError(AnalysisError):
-    pass
+    """Malformed/truncated model output, invalid frame IDs or contract/rule failure."""
+
+
+def remaining_seconds(deadline_monotonic: float) -> float:
+    """Return a positive remaining budget, or raise before starting more work.
+
+    The deadline is time.monotonic() on this host, not Unix time or a duration.
+    Call before/after every stage and cap I/O timeouts by this value. This helper
+    does not cancel sockets, subprocesses or GPU generation; supervisor does.
+    """
+    if (isinstance(deadline_monotonic, bool)
+            or not isinstance(deadline_monotonic, (int, float))
+            or not math.isfinite(deadline_monotonic)):
+        raise ValueError("Expected a finite absolute monotonic deadline")
+    remaining = deadline_monotonic - time.monotonic()
+    if remaining <= 0:
+        raise AnalysisTimeoutError("Analysis deadline exceeded")
+    return remaining
 
 
 class VideoAnalyzer(Protocol):
+    """Type of Omar's future synchronous analyze_video function (not implemented).
+
+    Runs in an isolated worker with a preinitialized client to the supervisor's
+    private loopback llama-server. Reuses that server across sequential jobs;
+    does not launch/download/stop the server per call. Supervisor owns server
+    and worker lifecycle, tracks process handles and stops both on a hung call.
+    video_path is an absolute input path, job_dir an absolute private output
+    directory. No source labels/IDs are inputs. Success returns AnalysisResult;
+    failure raises AnalysisError. Never return partial/no_violation on failure.
+    """
     def __call__(self, video_path: Path, job_dir: Path,
                  deadline_monotonic: float) -> AnalysisResult: ...

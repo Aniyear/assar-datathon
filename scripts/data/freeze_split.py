@@ -284,6 +284,22 @@ def validate(args) -> tuple[dict, dict]:
     return manifest, receipt
 
 
+def verify_development_pair(manifest, identifiers) -> None:
+    """Extra policy check, never changes v1 assignments or its frozen checksum."""
+    rows = manifest["records"]
+    for key in ("group_id", "sha256"):
+        membership = {}
+        for row in rows:
+            membership.setdefault(row[key], set()).add(row["split"])
+        require(all(len(parts) == 1 for parts in membership.values()), "Groups or hashes cross split boundaries.")
+    selected = [row for row in rows if row["canonical_id"] in identifiers]
+    require(len(set(identifiers)) == 2 and len(selected) == 2
+            and {r["canonical_id"] for r in selected} == set(identifiers), "Development pair is missing or ambiguous.")
+    require(len({r["sha256"] for r in selected}) == 1
+            and len({r["group_id"] for r in selected}) == 1
+            and {r["split"] for r in selected} == {"dev"}, "Required duplicate pair must share one group exclusively in dev.")
+
+
 def review(args) -> dict:
     manifest, receipt = validate(args)
     target = args.freeze / "group_review.json"
@@ -348,6 +364,7 @@ def parser() -> argparse.ArgumentParser:
     create.add_argument("--seed", type=int, default=20261017)
     create.add_argument("--exclude-test", nargs="+", default=["X-4", "X-47"])
     check = commands.add_parser("validate", help="Check receipt, source bytes, classes and exact reconstruction.")
+    check.add_argument("--require-dev-pair", nargs=2, help="Additionally require exact duplicate pair exclusively in dev.")
     human = commands.add_parser("review", help="Record completed local human review; never moves frozen groups.")
     human.add_argument("--groups", type=Path, required=True)
     package = commands.add_parser("export-train-dev", help="Copy only train/dev after human review, without frozen-test labels.")
@@ -367,7 +384,10 @@ def main() -> int:
         if args.command == "freeze":
             result = freeze(args)
         elif args.command == "validate":
-            _, result = validate(args)
+            manifest, result = validate(args)
+            if args.require_dev_pair:
+                verify_development_pair(manifest, args.require_dev_pair)
+                result = {**result, "development_pair_verified": True, "group_overlap": 0}
         elif args.command == "review":
             result = review(args)
         else:

@@ -17,7 +17,7 @@ Linux/сервер и GPU ещё не проверены. Lock версионн�
 
 Лицензии указаны по metadata установленных пакетов; полный пакет лицензий и
 транзитивных компонентов нужно сохранить при упаковке релиза. Подготовлены только
-общие зависимости; ML loader, CUDA, модель и её лицензия выбираются после handoff.
+общие зависимости. Технический baseline Омара из c32964a использует стандартную библиотеку и локальный llama-server b11669 с CUDA runtime DLL 12.4, GGUF/mmproj Q8_0. Точные ревизии/хеши — configs/model.yaml, перенос — ML_HANDOFF.md. Torch/transformers не нужны и не добавлены; зависимости и lock остаются без изменений.
 У новой FastAPI транзитивная зависимость `opentelemetry-api`: SDK/exporter не установлен;
 общие настройки дополнительно отключают OTEL. Содержательные логи и telemetry не включать.
 
@@ -32,7 +32,6 @@ python -m pip download --only-binary=:all: -r requirements.lock -d .wheels
 python -m pip install --no-index --find-links .wheels -r requirements.lock
 ```
 
-Эта команда не скачивает модель. Все processor/tokenizer/weights и лицензии должны
-быть подготовлены отдельно. `configure_offline_environment()` не заменяет тест
+Эта команда не скачивает модель. Для выбранного backend нужны GGUF, mmproj, бинарники llama.cpp/CUDA DLL и лицензии; подготовка отдельно, не в этом задании. Standalone processor/tokenizer из Transformers не используются. `configure_offline_environment()` не заменяет тест
 с отключённой сетью. Источники реализации: [Pydantic strict mode](https://docs.pydantic.dev/latest/concepts/strict_mode/),
 [Pillow Image](https://pillow.readthedocs.io/en/stable/reference/Image.html).

@@ -21,6 +21,13 @@ class Settings(BaseModel):
     max_jpeg_bytes: int = Field(default=5 * 1024 * 1024, gt=0, le=5 * 1024 * 1024)
     request_timeout_sec: int = Field(default=300, gt=0, le=300)
     analysis_budget_sec: int = Field(default=240, gt=0, lt=300)
+    response_reserve_sec: int = Field(default=5, gt=0, lt=300)
+    model_host: Literal["127.0.0.1"] = "127.0.0.1"
+    model_port: int = Field(default=0, ge=0, le=65535)
+    model_process_owner: Literal["service_supervisor"] = "service_supervisor"
+    model_start_timeout_sec: int = Field(default=180, gt=0)
+    model_call_timeout_sec: int = Field(default=120, gt=0)
+    model_stop_grace_sec: int = Field(default=10, gt=0)
     gpu_workers: Literal[1] = 1
     max_inflight_jobs: Literal[1] = 1  # Reject overload until queue timings are measured.
 
@@ -33,7 +40,7 @@ class Settings(BaseModel):
 
     @model_validator(mode="after")
     def budget_fits(self) -> Settings:
-        if self.analysis_budget_sec >= self.request_timeout_sec:
+        if self.analysis_budget_sec + self.response_reserve_sec > self.request_timeout_sec:
             raise ValueError("Analysis budget must leave time for upload/response/recovery")
         return self
 

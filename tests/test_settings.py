@@ -19,6 +19,9 @@ def test_key_required_and_redacted():
     {"ASSAR_REQUEST_TIMEOUT_SEC": "301"}, {"ASSAR_ANALYSIS_BUDGET_SEC": "300"},
     {"ASSAR_REQUEST_TIMEOUT_SEC": "200"}, {"ASSAR_GPU_WORKERS": "2"},
     {"ASSAR_MAX_INFLIGHT_JOBS": "2"}, {"ASSAR_MAX_UPLOAD_BYTES": "0"},
+    {"ASSAR_MODEL_HOST": "example.com"}, {"ASSAR_MODEL_PROCESS_OWNER": "external"},
+    {"ASSAR_MODEL_PORT": "65536"}, {"ASSAR_MODEL_CALL_TIMEOUT_SEC": "0"},
+    {"ASSAR_RESPONSE_RESERVE_SEC": "61"},
 ])
 def test_resource_limits(overrides):
     with pytest.raises(ValidationError):

@@ -1,58 +1,72 @@
-# Омару: старт assar v0.1
+# Омару: общий контракт поверх готового ML baseline
 
-Общая основа — commit ветки **codex/bootstrap**, base до изменений
-`08682a5837ea2fe4680c7a88dbc54c993314fccd`. Анияр передаёт точный новый hash вместе
-с этим handoff. Для передачи без push подготовлен Git bundle
-`outputs/assar-bootstrap.bundle` (только история кода, без данных и весов).
+Общая ветка — **origin/codex/bootstrap**. Первый стартовый commit b4c2d19 уже
+содержал типы и fixtures; текущая версия уточняет lifecycle/deadline под твой
+**c32964a318d47a0ce7648a697044b48c2e40c40a** (base main 08682a5).
+Анияр передаёт полный новый hash после push. Старый Git bundle содержит только
+b4c2d19; для этого дополнения получать актуальную ветку с GitHub.
 
-1. Получить bundle от Анияра, клонировать и создать отдельные рабочие папки:
+Твой ML-код прочитан через git show, не слит, не изменён. Не пересоздавай ML-ветку
+и не сбрасывай свою работу. В своём чистом ML checkout после проверки diff:
 
-   ```powershell
-   git clone -b codex/bootstrap C:\path\assar-bootstrap.bundle assar
-   cd assar
-   git rev-parse HEAD
-   git worktree add ..\assar-backend -b codex/backend HEAD
-   git worktree add ..\assar-ml -b codex/ml HEAD
-   ```
+```powershell
+git fetch origin
+git diff HEAD...origin/codex/bootstrap -- app/contracts.py app/settings.py configs/model.yaml docs/CONTRACTS.md docs/ML_HANDOFF.md
+# При принятии общего контракта тобой, только в собственной ML-папке:
+git merge --no-ff origin/codex/bootstrap
+```
 
-2. В каждой рабочей папке создать собственное окружение CPython 3.11:
+Если есть незакоммиченные изменения — сначала сохрани их своим commit; не reset/clean.
+Backend и ML остаются в разных worktree/клонах. Для НОВОЙ backend-папки, если
+ветка ещё не создана: `git worktree add -b codex/backend ../assar-backend origin/codex/bootstrap`.
+Frontend делает Argon; общие файлы и зависимости меняет Анияр.
 
-   ```powershell
-   python -m venv .venv
-   .\.venv\Scripts\python.exe -m pip install -r requirements.lock
-   .\.venv\Scripts\python.exe scripts/check_bootstrap.py
-   .\.venv\Scripts\python.exe -m pytest -q
-   ```
+В каждом checkout своё окружение CPython 3.11:
 
-3. Backend-чат Claude получает общий контекст и промпт № 3 из `docs/PROMPTS.md`;
-   пишет только `app/api/**`, `app/jobs/**`, `tests/api/**`. ML-чат — промпт № 2,
-   только `app/inference/**`, `tests/inference/**`. Argon у Анияра пишет `app/web/**`.
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.lock
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe scripts/check_bootstrap.py
+.\.venv\Scripts\python.exe -m pytest -q
+```
 
-Контракт в `app/contracts.py` и `docs/CONTRACTS.md`: `analyze_video(Path, Path,
-deadline_monotonic) -> AnalysisResult`. Backend вызывает общие проверки длительности,
-путей/JPEG, verified rules и внешнего результата. Источник берётся из каталога и
-включается в description; внешние поля не расширять. Ошибка/таймаут → failed без
-verdict. Нужен отдельный worker и watchdog; Future timeout сам inference не прерывает.
-На старте только одно принятое задание; следующий запрос при занятости — 503.
-Рекомендуемый импорт ASGI — `app.api.main:app`; он пока **не реализован**.
+Сигнатура для реализации ML:
 
-Ключ задаётся через `ASSAR_API_KEY`, остальные настройки — `.env.example`.
-До импорта модели вызвать `configure_offline_environment()`, загружать локальные
-файлы. Производственный startup должен отказать без готовых весов и verified
-каталога. Сейчас `configs/model.yaml` не настроен, `app/rules/catalog.json` пуст.
-`tests/fixtures/contracts/*.json` — только синтетические примеры для тестов/UI.
+```python
+analyze_video(video_path: Path, job_dir: Path, deadline_monotonic: float) -> AnalysisResult
+```
 
-Данные: split **22/8/10** зафиксирован у Анияра. До настройки модели Анияр должен
-локально завершить проверку похожих сцен; сейчас статус pending. Для ручной
-проверки Омар получает только train/dev. После проверки Анияр экспортирует пакет
-командой из `docs/DATA_SPLIT.md`; полный архив/labels/frozen test в ML не передавать.
-Train — обучение/teacher, dev — выбор версии; test — независимая оценка у Анияра.
+Оба пути абсолютные; результат/ошибки из app/contracts.py. Deadline — абсолютный
+time.monotonic(), единый для всего видео; helper remaining_seconds перед/после
+стадий и cap I/O timeouts. Backend supervisor запускает свой llama-server один
+раз и передаёт worker loopback-клиент. Здоровый сервер переиспользуется. При
+зависании supervisor прекращает собственные worker, server и декодер; до
+подтверждённой остановки/health нового сервера приём закрыт. Анализ не запускает
+сервер на каждый job и не подключается к чужому процессу. Полное сопоставление
+старых ошибок, timeout и ответственности — **docs/ML_HANDOFF.md**.
 
-Зависимости, каталог, model config и общий контракт меняет Анияр. Запрос на ML-стек
-передать с точными Python/CUDA/PyTorch/Transformers версиями и лицензиями. В handoff:
-base commit, файлы, фактически выполненные тесты, команда запуска/импорт analyzer,
-revision/hash весов, ресурсы/время и открытые риски. Наблюдения и видео остаются локально.
+configs/model.yaml закрепляет точный llama.cpp b11669 и GGUF Q8_0 + mmproj Q8_0,
+SHA256 и параметры рабочего baseline. Это JSON-совместимый YAML; твой текущий
+benchmark ещё не читает его. Нужен loader/adapter, не изменение схемы API.
+Не добавляй torch/transformers. analyze_video и production orchestration
+пока отсутствуют; каталог verified-правил пуст. Команда будущего API после их
+готовности: `python -m uvicorn app.api.main:app --host 127.0.0.1 --port 8000 --workers 1`;
+сначала задать ASSAR_API_KEY и применить offline-настройки, без --reload.
 
-Общая основа проверена 57 CPU-тестами (включая 15 data/eval), проверкой `pip check`,
-пятью синтетическими API-примерами и повторной валидацией приватного split.
-Реальный API, inference, GPU, offline end-to-end и публичная доступность пока не проверены.
+Для backend/Argon: **tests/fixtures/contracts/** — accepted, processing, failed,
+done_no_violation, done_violation. Это только синтетические JSON/JPEG; не брать
+их в runtime. Backend применяет общие проверки результата, длительности,
+путей/JPEG и каталога, затем сериализует точную внешнюю схему.
+
+Split **22/8/10** не менялся; X-4/X-47 — одна группа, **только dev**.
+Анияр проверяет: `python scripts/data/freeze_split.py validate --require-dev-pair X-4 X-47`.
+До локального human review похожих сцен нельзя продолжать подбор промптов,
+порогов, checkpoint, teacher/LoRA. Код и синтетические тесты разрешены.
+Омару только train/dev; полный архив, общие labels и frozen test остаются у Анияра.
+Видео, кадры, аннотации и model outputs не передавать облачным AI/в Git.
+
+В этом шаге GPU и скачивание весов не запускаются. Замер 3060 — отдельное следующее
+задание. Handoff: base commit, изменённые файлы, точный импорт analyzer/ASGI,
+команды и фактические результаты проверок, unresolved risks. Скорость/качество
+на 3060, deadline watchdog и offline end-to-end пока не подтверждены.
