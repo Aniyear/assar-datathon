@@ -59,7 +59,7 @@ def build(split_csv: Path, videos_dir: Path, labels_csv: Path | None, diagnostic
             continue
         seen_groups.add(r["group_id"])
         out.append({"id": cid, "path": str(p.resolve()), "file": p.name,
-                    "role": "diagnostic" if cid in diagnostic else "dev",
+                    "role": "diagnostic" if cid in diagnostic else r["split"],
                     "source_label": labels.get(cid),
                     # только для разметки/оценки (discover, dev_eval), не для inference
                     "source_timecode_sec": timecodes.get(cid)})

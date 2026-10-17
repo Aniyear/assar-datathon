@@ -26,7 +26,7 @@ from ..video import Frame, probe, sample_frames, windows
 from ..vlm import LlamaServer, ServerConfig
 from .fetch import MANIFEST, ROOT, load_manifest
 
-ROLES = ("diagnostic", "dev")
+ROLES = ("diagnostic", "dev", "train")
 
 
 def load_videos(path: Path) -> list[dict]:
