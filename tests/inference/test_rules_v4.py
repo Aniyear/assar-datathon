@@ -50,7 +50,7 @@ def test_safe01_key_left_is_event_and_closed_safe_is_not():
 def test_access01_outsider_run():
     [c] = of(rules_v4.evaluate(tl("ynnnn ynynn ynynn ynynn ynynn ynnnn")), rules_v4.TYPE_ACCESS01)
     assert c.decision == "event" and [f.index for f in c.evidence] == [1, 3, 4]
-    assert of(rules_v4.evaluate(tl("ynnnn ynynn ynynn ynynn ynnnn")), rules_v4.TYPE_ACCESS01) == []  # 3 < 4
+    assert of(rules_v4.evaluate(tl("ynnnn ynynn ynynn ynnnn")), rules_v4.TYPE_ACCESS01) == []  # 2 < 3
 
 
 def test_v4_schema_and_rows():
@@ -96,3 +96,33 @@ def test_v4_safe01_through_analyzer(video, tmp_path):
     assert res.events[0].timecode_sec == 20.0 and "сейф открыт" in res.events[0].observed_fact
     validate_analysis_for_video(res, 25.0, job)
     validate_analysis_rules(res, cat)
+
+
+def _access_responder(verify_answers):
+    """Окна: посторонний на кадрах 5–9; запрос проверки (3 кадра) — ответы verify_answers по порядку."""
+    def r(idx):
+        if len(idx) == 3 and idx[0] >= 5 and idx[-1] <= 9:
+            return 200, json.dumps({"frames": [{"index": i, "other_staff_side": a} for i, a in zip(idx, verify_answers)]}), "stop"
+        pres = [{"index": i, "cashier": "yes", "client": "no", "outsider": "yes" if 5 <= i <= 9 else "no",
+                 "safe_open": "no", "keys_left": "no"} for i in idx]
+        return 200, json.dumps({"presence": pres, "counting_frames": [], "service_frames": []}), "stop"
+    return r
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("answers,expect", [(["yes", "yes", "yes"], "violation"), (["yes", "no", "yes"], "no_violation")])
+def test_v4_access_verification(video, tmp_path, answers, expect):
+    cfg = dataclasses.replace(load_model_config(ROOT / "configs/model.yaml"), prompt_version=facts_v4.PROMPT_VERSION,
+                              max_tokens=900)
+    cat = catalog(synthetic_rule(type_id=rules_v4.TYPE_ACCESS01, rule_id="A1"))
+    srv = FakeLlama(_access_responder(answers))
+    try:
+        job = tmp_path / "job"
+        job.mkdir()
+        a = Analyzer(cfg, cat, LlamaClient(srv.url), call_timeout_sec=10)
+        res = a.analyze_video(video, job, time.monotonic() + 60)
+    finally:
+        srv.close()
+    assert res.verdict == expect
+    c = a.last_trace["candidates"][0]
+    assert c["checks"]["outsider_verified"]["status"] == ("confirmed" if expect == "violation" else "refuted")

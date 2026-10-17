@@ -76,3 +76,35 @@ def to_rows(obj) -> list[dict]:
              "collector_present": "unknown", "bag_opened": "no",
              **{field: "yes" if e["index"] in s else "no" for field, s in acts.items()}}
             for e in obj["presence"]]
+
+
+# Второй шаг для ACCESS-01: узкий вопрос по 3 кадрам кандидата (все три «yes» — событие подтверждено).
+VERIFY_ACCESS = (
+    "Each frame shows a bank cash office from a fixed overhead camera. The cashier is the employee who works at "
+    "the desk on the staff side (computer, cash machine, safe). For EACH frame answer yes, no or unknown: is "
+    "there ANOTHER person (not the cashier) on the staff side of the desk — standing or sitting next to, behind "
+    "or leaning over the cashier, or at the safe, cash machine or computer? A customer who sits or stands across "
+    "the desk on the customer side does NOT count.")
+
+
+def verify_parts(frames) -> list[str | Path]:
+    parts: list[str | Path] = [VERIFY_ACCESS]
+    for f in frames:
+        parts += [f"Frame {f.index}, t={f.pts_sec:.1f}s:", f.model_path]
+    return parts + ["Answer in JSON."]
+
+
+def verify_schema(frame_indices: list[int]) -> dict:
+    n = len(frame_indices)
+    item = {"type": "object", "properties": {"index": {"type": "integer", "enum": frame_indices},
+                                             "other_staff_side": {"type": "string", "enum": list(TRI)}},
+            "required": ["index", "other_staff_side"]}
+    return {"type": "object", "properties": {"frames": {"type": "array", "minItems": n, "maxItems": n,
+                                                        "items": item}}, "required": ["frames"]}
+
+
+def verify_validate(obj, frame_indices: list[int]) -> bool:
+    if not isinstance(obj, dict) or not isinstance(obj.get("frames"), list):
+        return False
+    seen = [e.get("index") for e in obj["frames"] if isinstance(e, dict) and e.get("other_staff_side") in TRI]
+    return sorted(seen) == sorted(frame_indices)

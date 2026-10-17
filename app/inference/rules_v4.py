@@ -25,13 +25,15 @@ SUPPORTED_TYPES = (TYPE_CASH01, TYPE_CASH02, TYPE_SAFE01, TYPE_ACCESS01)
 FIELDS = ("cashier_at_workplace", "client_at_counter", "outsider_staff_side", "safe_open", "keys_left",
           "collector_present", "service_in_progress", "cashier_counting_cash", "bag_opened")
 PRE_FRAMES = 2  # кадры перед уходом, на которых смотрим состояние сейфа
-# Подобрано на train (не dev/test): посторонний ≥ 4 кадров подряд отделяет X-30 от коротких ложных X-3/X-37/X-39.
-ACCESS_MIN_FRAMES = 4
+# Подобрано на train (не dev/test): кандидат — посторонний ≥ 3 кадров подряд; затем узкая проверка трёх кадров
+# вторым запросом (analyzer, facts_v4.VERIFY_ACCESS) — на train она оставила X-30 (3/3) и убрала X-19, X-3.
+ACCESS_MIN_FRAMES = 3
 
 CONDITION_RU = {
     **rules_v2.CONDITION_RU,
     "safe_unsecured": "Сейф открыт или ключ оставлен в замке/на сейфе во время или прямо перед уходом",
-    "outsider_present": "Посторонний (не кассир) на стороне сотрудника / у сейфа ≥ 4 кадров подряд",
+    "outsider_present": "Посторонний (не кассир) на стороне сотрудника / у сейфа ≥ 3 кадров подряд",
+    "outsider_verified": "Повторная узкая проверка: посторонний на стороне сотрудника на всех трёх кадрах",
 }
 _ = TRI
 

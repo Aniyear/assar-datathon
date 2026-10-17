@@ -125,6 +125,7 @@ def main() -> int:
     a.add_argument("--platform", choices=["windows-x64", "linux-x64"],
                    default="windows-x64" if sys.platform == "win32" else "linux-x64")
     a.add_argument("--min-run", type=int, default=2)
+    a.add_argument("--image-max-tokens", type=int, default=1024)
     m = sub.add_parser("motion")
     m.add_argument("--videos", type=Path, required=True)
     m.add_argument("--zoom", type=Path, required=True)
@@ -143,7 +144,7 @@ def main() -> int:
         client = LlamaClient(args.endpoint)
     else:
         scfg = server_config(load_manifest(), args.variant, args.platform)
-        scfg.image_max_tokens, scfg.ctx = 1024, 12288
+        scfg.image_max_tokens, scfg.ctx = args.image_max_tokens, 12288
         server = LlamaServer(scfg, args.run / "refine-llama-server.log")
         server.start(timeout=600)
         client = server.client
