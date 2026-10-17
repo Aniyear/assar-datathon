@@ -1,0 +1,40 @@
+{
+  "algorithm": "assar-group-stratified-dp-v1",
+  "decode_audit_verified": true,
+  "holdout_exclusion_groups": 1,
+  "input_sha256": {
+    "decode_checks.json": "8290c0ebbfac73cfcf274982969195865d57bd719eb41fbee0608dc56d4d281e",
+    "labels_normalized.csv": "20a09aaa7ff0c02106fbe15afb512153ec6663a83a6da5f8cf9f3766f00b9f8d",
+    "video_manifest.csv": "e054c259cce31832088c036fab057d1a0e8ab7111d8339cdbf46a6373f7b231c"
+  },
+  "manifest_sha256": "57fd3795cdd714f15a775112cc30a8ee783ca14badd4df6cb1cca1656bdcd49a",
+  "model_tuning_allowed": false,
+  "near_duplicate_review": "pending",
+  "schema_version": "1",
+  "seed": 20261017,
+  "source_bytes_verified": true,
+  "summary": {
+    "dev": {
+      "files": 9,
+      "groups": 8,
+      "negative": 4,
+      "positive": 4,
+      "unique_videos": 8
+    },
+    "test": {
+      "files": 11,
+      "groups": 10,
+      "negative": 5,
+      "positive": 5,
+      "unique_videos": 10
+    },
+    "train": {
+      "files": 22,
+      "groups": 22,
+      "negative": 10,
+      "positive": 12,
+      "unique_videos": 22
+    }
+  },
+  "train_dev_manifest_sha256": "e2fe70f62d1d2bab72ecdd082f5569f3d3a2c87370e0d1d98198ce20d3222628"
+}

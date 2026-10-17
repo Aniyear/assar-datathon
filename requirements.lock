@@ -1,0 +1,24 @@
+# Resolved and tested in clean CPython 3.11.9 / Windows x64. Includes pytest.
+# Full transitive version lock; no ML packages. Install with pip -r.
+Pygments==2.21.0
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.15.1
+click==8.5.0
+colorama==0.4.6
+fastapi==0.143.3
+h11==0.16.0
+idna==3.20
+iniconfig==2.3.1
+opentelemetry-api==1.45.1
+packaging==26.3
+pillow==12.2.0
+pluggy==1.7.0
+pydantic==2.12.4
+pydantic_core==2.41.5
+pytest==9.1.1
+python-multipart==0.0.32
+starlette==1.8.0
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+uvicorn==0.54.0

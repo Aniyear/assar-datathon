@@ -1,5 +1,5 @@
 # Competition data stays local
-data/
+/data/
 analysis/local/
 models/
 weights/
@@ -25,3 +25,7 @@ node_modules/
 dist/
 .DS_Store
 Thumbs.db
+.worktrees/
+.wheels/
+.coverage
+*.egg-info/

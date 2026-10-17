@@ -1,0 +1,17 @@
+# Unconfigured by design. No weights have been selected, downloaded or measured.
+# Integrator fills exact revisions, hashes and runtime lock after Omar's handoff.
+schema_version: '0.1'
+status: not_configured
+model_id: null
+model_revision: null
+local_weights_dir: null
+weights_sha256: null
+processor_revision: null
+runtime_lock: null
+quantization: null
+license_path: null
+local_files_only: true
+trust_remote_code: false
+external_inference: false
+audio_enabled: false
+face_recognition_enabled: false
