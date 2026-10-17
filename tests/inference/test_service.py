@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from app.contracts import (AnalysisError, AnalysisResult, DecodeError, InvalidAnalysisResultError,
-                           ModelUnavailableError)
+from app.contracts import (AnalysisError, AnalysisResult, AnalysisTimeoutError, DecodeError,
+                           InvalidAnalysisResultError, ModelUnavailableError)
 from app.inference import AnalyzerNotReadyError, service
 from tests.inference.fakes import FakeLlama, catalog, ok, synthetic_rule
 
@@ -95,6 +95,37 @@ def test_create_analyzer_init_failures():
         srv.close()
     with pytest.raises(ModelUnavailableError):  # сервер уже остановлен
         service.create_analyzer(srv.url, CFG, catalog(synthetic_rule()), ROOT)
+
+
+@pytest.mark.parametrize("bad", [0, -1, math.inf, math.nan, True, "120"])
+def test_create_analyzer_rejects_bad_call_timeout(bad):
+    with pytest.raises(ModelUnavailableError):
+        service.create_analyzer("http://127.0.0.1:9", CFG, catalog(synthetic_rule()), ROOT, call_timeout_sec=bad)
+
+
+@needs_ffmpeg
+def test_call_timeout_sec_limits_each_request(tmp_path):
+    """Значение ≠ 120 доходит до запроса: сервер отвечает через 4 с, предел 1,5 с, deadline 30 с."""
+    srv = FakeLlama(lambda idx: ("sleep", 4))
+    try:
+        fn = service.create_analyzer(srv.url, CFG, catalog(synthetic_rule()), ROOT, call_timeout_sec=1.5)
+        video = tmp_path / "input.mov"
+        subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc=size=160x120:rate=10:duration=2",
+                        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-y", str(video)], check=True)
+        job = tmp_path / "job"
+        job.mkdir()
+        t0 = time.monotonic()
+        with pytest.raises(AnalysisTimeoutError):
+            fn(video, job, time.monotonic() + 30)
+        assert 1.4 < time.monotonic() - t0 < 3.5
+        # и общий deadline меньше call_timeout_sec: ограничивает остаток бюджета
+        fn2 = service.create_analyzer(srv.url, CFG, catalog(synthetic_rule()), ROOT, call_timeout_sec=60)
+        t0 = time.monotonic()
+        with pytest.raises(AnalysisTimeoutError):
+            fn2(video, job, time.monotonic() + 2.0)
+        assert time.monotonic() - t0 < 3.5
+    finally:
+        srv.close()
 
 
 @pytest.fixture

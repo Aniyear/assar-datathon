@@ -81,6 +81,7 @@ def validate(obj, frame_indices: list[int]) -> bool:
         fi = o.get("frame_indices")
         if not isinstance(fi, list) or not fi or not all(isinstance(i, int) and i in allowed for i in fi):
             return False
-        if not isinstance(o.get("description"), str):
+        # Индивидуальное наблюдение обязательно: пустой/пробельный текст — невалидный ответ.
+        if not isinstance(o.get("description"), str) or not o["description"].strip():
             return False
     return True

@@ -136,7 +136,7 @@ from app.inference.service import check_runtime, create_analyzer, server_command
 |---|---|---|---|
 | `check_runtime(model_cfg, repo_root)` | API, один раз при старте | Размер и SHA256 весов и mmproj, наличие и SHA256 `llama-server.exe` (`runtime.server_sha256_reported`); проверка закреплённых флагов. Без процессов и сети | `ModelUnavailableError` |
 | `server_command(model_cfg, repo_root, port)` | supervisor перед `Popen` | Чистая функция: argv с `--host 127.0.0.1 --port <port> -c 8192 -ngl 99 -np 1 --no-webui --offline --jinja --image-max-tokens 256` и абсолютными путями от `repo_root` | `ModelUnavailableError` (порт вне 1–65535, config без `--offline`/`-np 1`/…) |
-| `create_analyzer(endpoint, model_cfg, catalog, repo_root)` | worker, один раз после health | Клиент `endpoint` (только `http://127.0.0.1:<port>`, без proxy и редиректов), `Analyzer`, проверка `/health` ≤ 2 с. Возвращает `analyze_video` | `AnalyzerNotReadyError` (нет verified-правил, type_id вне категорий промпта, версия промпта), `ModelUnavailableError` |
+| `create_analyzer(endpoint, model_cfg, catalog, repo_root, call_timeout_sec=120.0)` | worker, один раз после health | Клиент `endpoint` (только `http://127.0.0.1:<port>`, без proxy и редиректов), `Analyzer`, проверка `/health` ≤ 2 с. `call_timeout_sec` = `Settings.model_call_timeout_sec`: предел одного запроса, дополнительно ограниченный остатком deadline. Возвращает `analyze_video` | `AnalyzerNotReadyError` (нет verified-правил, type_id вне категорий промпта, версия промпта), `ModelUnavailableError` (в т. ч. `call_timeout_sec` не конечное положительное число) |
 
 Процессы модели запускает и останавливает только supervisor; адаптер не создаёт второй сервер.
 `ffmpeg`/`ffprobe` запускаются обычным `subprocess.run` (`CREATE_NO_WINDOW`, без breakaway/detached)
@@ -148,8 +148,8 @@ from app.inference.service import check_runtime, create_analyzer, server_command
 | Ситуация | Тип | Supervisor |
 |---|---|---|
 | Путь видео не абсолютный / файла нет, ffprobe/ffmpeg не прочитали, PTS вне длительности | `DecodeError` | мягкий: сервер переиспользуется |
-| Все окна непригодны; часть окон непригодна и verified-событий нет | `UnassessableVideoError` | мягкий |
-| Ответ обрезан / не JSON / неверный индекс кадра; наблюдения кандидатных категорий без verified-правила при отсутствии событий; результат не прошёл общие валидаторы | `InvalidAnalysisResultError` | мягкий |
+| Все окна непригодны; часть окон непригодна и verified-событий нет; verified-событий нет, но есть `other_notable_action` | `UnassessableVideoError` | мягкий |
+| Ответ обрезан / не JSON / неверный индекс кадра / пустое или пробельное описание наблюдения; наблюдения кандидатных категорий без verified-правила при отсутствии событий; результат не прошёл общие валидаторы | `InvalidAnalysisResultError` | мягкий |
 | HTTP-ошибка, недоступность llama-server | `ModelUnavailableError` | перезапуск |
 | Исчерпан deadline, timeout ffprobe/ffmpeg/запроса | `AnalysisTimeoutError` | перезапуск |
 | `job_dir` не абсолютный/не существует, deadline не конечное число, любой непредвиденный сбой | базовый `AnalysisError` (причина в `__cause__`) | перезапуск |
@@ -171,10 +171,42 @@ from app.inference.service import check_runtime, create_analyzer, server_command
 4. Событий нет:
    - есть наблюдения кандидатных категорий без verified-правила → `InvalidAnalysisResultError`;
    - есть непригодные окна → `UnassessableVideoError`;
-   - иначе (все окна пригодны, наблюдений нет либо только `other_notable_action`) → **`no_violation`**.
+   - есть наблюдения `other_notable_action` → `UnassessableVideoError` (политика MVP, B6: такое действие
+     не признаётся нарушением, но и не доказывает его отсутствие);
+   - иначе (все окна пригодны и наблюдений нет совсем) → **`no_violation`**.
+
+Пустое или пробельное описание любого наблюдения → `InvalidAnalysisResultError` (B5): `observed_fact`
+события — только текст модели, общий текст вместо него не подставляется.
+
+**Следствие политики:** консервативные правила 2 и 4 (непригодные окна, кандидатные категории без
+правила, `other_notable_action`) переводят неопределённые случаи в `failed` вместо `no_violation`.
+Доля `failed` может заметно вырасти; насколько — не измерено (зависит от того, как часто модель
+выдаёт такие категории на реальных роликах).
 
 Пустой каталог блокирует старт (`AnalyzerNotReadyError`), а не выдаёт `no_violation`. Порогов на число
 кадров/длительность события нет: их нужно задавать вместе с verified-правилом, а не подбирать.
+
+## Длительность и VFR (B8)
+
+Время кадра — PTS из `showinfo`; граница — длительность контейнера `format.duration`, та же, что
+проверяет backend (`app/jobs/media.py`). В MOV с переменным FPS **и B-frames** edit list, который
+пишет mov-muxer, оказывается короче последних декодируемых кадров. Синтетический fixture
+(0–2 с при 30 FPS, далее шаг 0,1 с, x264 по умолчанию, `has_b_frames=2`):
+
+| FFmpeg (кодирование и проба) | duration контейнера | последний декодированный PTS | с `-bf 0` |
+|---|---:|---:|---:|
+| 7.1.1 essentials (gyan.dev) | 7,767 | 7,8 | duration 7,9 ≥ PTS |
+| N-122607 (BtbN, 31.01.2026) | 7,8 | 7,9 | duration 7,933 ≥ PTS |
+| N-123073 (BtbN, 28.02.2026) | 7,8 | 7,9 | duration 7,933 ≥ PTS |
+
+Сборка интегратора N-122697 (10.02.2026) лежит между двумя проверенными; по данным интегратора на ней те же 7,8/7,9. Саму N-122697 я не запускал: в архиве BtbN её нет.
+Причина — источник длительности, а не вычисление времени: PTS кадров реальны, но по edit list
+хвост после `duration` не входит в представленный ролик (плеер и backend его не учитывают).
+Fixture корректен как пример такого файла. Исправление: декодирование только диапазона
+`[0, duration)` (`-t duration` на входе FFmpeg); clamp не применяется, PTS вне диапазона
+по-прежнему `DecodeError`. Кадр с PTS ровно `duration` тоже не берётся: его показ начинается в конце
+ролика. Ограничение: если контейнерная длительность сама неверна (существенно короче содержимого),
+хвост будет молча исключён; отдельной проверки на это нет.
 
 ## Измерения: RTX 3050 Laptop 4 ГБ, 17.10.2026
 
