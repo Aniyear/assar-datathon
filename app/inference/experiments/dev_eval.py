@@ -88,6 +88,11 @@ EVAL_RULES_V4 = [EVAL_RULES_V2[0], EVAL_RULES_V2[1],
 ]
 
 
+# SAFE-01 выключен: на train/dev ни 27B, ни 4B не распознали открытый сейф/ключ при уходе (0 верных, ложные на
+# нормальных видео). Код правила сохранён в rules_v4, в каталог не входит.
+EVAL_RULES_V4 = [r for r in EVAL_RULES_V4 if r["type_id"] != rules_v4.TYPE_SAFE01]
+
+
 def eval_catalog(mode: str = "v1") -> RuleCatalog:
     rules = EVAL_RULES_V4 if mode == "v4" else EVAL_RULES_V2 if mode in ("v2", "v3") else [EVAL_RULE]
     return RuleCatalog.model_validate({"schema_version": "0.1", "rules": rules})

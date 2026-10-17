@@ -25,11 +25,13 @@ SUPPORTED_TYPES = (TYPE_CASH01, TYPE_CASH02, TYPE_SAFE01, TYPE_ACCESS01)
 FIELDS = ("cashier_at_workplace", "client_at_counter", "outsider_staff_side", "safe_open", "keys_left",
           "collector_present", "service_in_progress", "cashier_counting_cash", "bag_opened")
 PRE_FRAMES = 2  # кадры перед уходом, на которых смотрим состояние сейфа
+# Подобрано на train (не dev/test): посторонний ≥ 4 кадров подряд отделяет X-30 от коротких ложных X-3/X-37/X-39.
+ACCESS_MIN_FRAMES = 4
 
 CONDITION_RU = {
     **rules_v2.CONDITION_RU,
     "safe_unsecured": "Сейф открыт или ключ оставлен в замке/на сейфе во время или прямо перед уходом",
-    "outsider_present": f"Посторонний (не кассир) на стороне сотрудника / у сейфа ≥ {MIN_ACTION_FRAMES} кадров подряд",
+    "outsider_present": "Посторонний (не кассир) на стороне сотрудника / у сейфа ≥ 4 кадров подряд",
 }
 _ = TRI
 
@@ -60,7 +62,7 @@ def _access01(tl: Sequence[Facts]) -> list[Candidate]:
     out = []
     for a, b in _runs(tl, lambda f: f["outsider_staff_side"] == "yes"):
         run = list(tl[a:b + 1])
-        if len(run) < MIN_ACTION_FRAMES:
+        if len(run) < ACCESS_MIN_FRAMES:
             continue
         checks = {"outsider_present": Check("confirmed", [f.index for f in run])}
         out.append(Candidate(TYPE_ACCESS01, run, checks, ("outsider_present",),

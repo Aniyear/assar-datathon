@@ -299,9 +299,11 @@ class Analyzer:
         cands = rm.evaluate(timeline)
         self.last_trace = rm.trace(timeline, cands)
         unknown = sum(1 for x in timeline if "unknown" in (x["cashier_at_workplace"], x["client_at_counter"]))
-        if unknown * 2 > len(timeline):
-            # Реально непригодное видео: большинство кадров не позволяет судить о присутствии людей.
-            raise UnassessableVideoError("most frames do not allow judging presence of cashier/client")
+        cashier_unknown = sum(1 for x in timeline if x["cashier_at_workplace"] == "unknown")
+        if cashier_unknown * 10 >= len(timeline) * 9:
+            # Непригодно только если модель не может судить даже о кассире почти на всех кадрах; неуверенность
+            # о клиенте — limitation, а не отказ (FAQ 15: злоупотребление «недостаточно данных» штрафуется).
+            raise UnassessableVideoError("cashier presence cannot be judged on almost all frames")
         chosen = sorted((c for c in cands if c.decision == "event" and c.type_id in self.rules),
                         key=lambda c: c.interval[0].pts_sec)
         events = []

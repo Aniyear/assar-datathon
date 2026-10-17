@@ -147,9 +147,15 @@ def test_v2_insufficient_is_no_violation_not_failed(cfg, video, tmp_path):
 
 
 @needs_ffmpeg
-def test_v2_mostly_unknown_is_unassessable(cfg, video, tmp_path):
+def test_v2_cashier_unknown_everywhere_is_unassessable(cfg, video, tmp_path):
     with pytest.raises(UnassessableVideoError):
         run(cfg, responder({}, default="uunnnn"), video, tmp_path)
+
+
+@needs_ffmpeg
+def test_v2_client_unknown_is_verdict_not_failed(cfg, video, tmp_path):
+    res, _, _ = run(cfg, responder({}, default="yunnnn"), video, tmp_path)
+    assert res.verdict == "no_violation" and any("unknown cashier/client" in x for x in res.limitations)
 
 
 @needs_ffmpeg

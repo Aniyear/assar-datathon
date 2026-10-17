@@ -48,9 +48,9 @@ def test_safe01_key_left_is_event_and_closed_safe_is_not():
 
 
 def test_access01_outsider_run():
-    [c] = of(rules_v4.evaluate(tl("ynnnn ynynn ynynn ynnnn")), rules_v4.TYPE_ACCESS01)
-    assert c.decision == "event" and [f.index for f in c.evidence] == [1, 2]
-    assert of(rules_v4.evaluate(tl("ynnnn ynynn ynnnn")), rules_v4.TYPE_ACCESS01) == []
+    [c] = of(rules_v4.evaluate(tl("ynnnn ynynn ynynn ynynn ynynn ynnnn")), rules_v4.TYPE_ACCESS01)
+    assert c.decision == "event" and [f.index for f in c.evidence] == [1, 3, 4]
+    assert of(rules_v4.evaluate(tl("ynnnn ynynn ynynn ynynn ynnnn")), rules_v4.TYPE_ACCESS01) == []  # 3 < 4
 
 
 def test_v4_schema_and_rows():
