@@ -19,7 +19,8 @@ def _setup(tmp_path, split="dev"):
             f"X-4,Х-4.mov,{h['Х-4.mov']},{h['Х-4.mov']},dev",
             f"X-47,Х-47.mov,{h['Х-47.mov']},{h['Х-4.mov']},dev"]
     (tmp_path / "split.csv").write_text("\n".join(rows), encoding="utf-8")
-    (tmp_path / "labels.csv").write_text("video_id,label\nX-2,0\nX-4,1\nX-47,1\nX-9,1\n", encoding="utf-8")
+    (tmp_path / "labels.csv").write_text("video_id,label,timecode_sec\nX-2,0,\nX-4,1,57.0\nX-47,1,68.0\nX-9,1,3\n",
+                                         encoding="utf-8")
     return vdir
 
 
@@ -28,7 +29,8 @@ def test_build_dedupes_groups_and_reads_selected_labels(tmp_path):
     items = mvl.build(tmp_path / "split.csv", vdir, tmp_path / "labels.csv", {"X-4"}, {"dev"})
     assert [i["id"] for i in items] == ["X-2", "X-4"]
     assert items[1]["role"] == "diagnostic" and items[1]["source_label"] == "violation"
-    assert items[0]["source_label"] == "no_violation"
+    assert items[0]["source_label"] == "no_violation" and items[0]["source_timecode_sec"] is None
+    assert items[1]["source_timecode_sec"] == 57.0
 
 
 def test_build_rejects_test_split_and_hash_mismatch(tmp_path):

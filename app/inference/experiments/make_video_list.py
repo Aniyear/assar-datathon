@@ -39,12 +39,14 @@ def build(split_csv: Path, videos_dir: Path, labels_csv: Path | None, diagnostic
     if any(r["split"] not in allowed_splits for r in rows):
         raise SystemExit(f"split CSV contains rows outside {sorted(allowed_splits)} (frozen test is not allowed)")
     files = {canonical(p.name): p for p in videos_dir.iterdir() if p.suffix.lower() == ".mov"}
-    labels = {}
+    labels, timecodes = {}, {}
     if labels_csv:
         wanted = {r["canonical_id"] for r in rows}
         for r in csv.DictReader(open(labels_csv, encoding="utf-8-sig")):
             if r["video_id"] in wanted:  # только выбранные файлы
                 labels[r["video_id"]] = "violation" if str(r["label"]).strip() in ("1", "1.0") else "no_violation"
+                tc = str(r.get("timecode_sec") or "").strip()
+                timecodes[r["video_id"]] = float(tc) if tc not in ("", "nan") else None
     out, seen_groups = [], set()
     for r in rows:
         cid = r["canonical_id"]
@@ -58,7 +60,9 @@ def build(split_csv: Path, videos_dir: Path, labels_csv: Path | None, diagnostic
         seen_groups.add(r["group_id"])
         out.append({"id": cid, "path": str(p.resolve()), "file": p.name,
                     "role": "diagnostic" if cid in diagnostic else "dev",
-                    "source_label": labels.get(cid)})
+                    "source_label": labels.get(cid),
+                    # только для разметки/оценки (discover, dev_eval), не для inference
+                    "source_timecode_sec": timecodes.get(cid)})
     return out
 
 
@@ -72,6 +76,7 @@ def main() -> int:
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--remote-dir", help="каталог видео на сервер: создаёт <out>.remote.json и команду scp")
     ap.add_argument("--remote-host", default="user@remote-host")
+    ap.add_argument("--remote-root", default="~/assar/code", help="корень checkout на сервер")
     args = ap.parse_args()
     items = build(args.split_csv, args.videos_dir, args.labels_csv, set(args.diagnostic.split(",")),
                   set(args.splits.split(",")))
@@ -88,9 +93,10 @@ def main() -> int:
         rpath = args.out.with_suffix(".remote.json")
         rpath.write_text(json.dumps(remote, ensure_ascii=False, indent=1), encoding="utf-8")
         cmd = args.out.with_suffix(".scp.ps1")
-        lines = [f"ssh {args.remote_host} \"mkdir -p {args.remote_dir}\""]
+        lists_dir = f"{args.remote_root.rstrip('/')}/outputs/experiments"
+        lines = [f"ssh {args.remote_host} \"mkdir -p {args.remote_dir} {lists_dir}\""]
         lines += [f'scp "{it["path"]}" "{args.remote_host}:{args.remote_dir.rstrip("/")}/{it["id"]}.mov"' for it in items]
-        lines.append(f'scp "{rpath.resolve()}" "{args.remote_host}:~/assar-ml/outputs/experiments/videos.dev.local.json"')
+        lines.append(f'scp "{rpath.resolve()}" "{args.remote_host}:{lists_dir}/{args.out.name}"')
         cmd.write_text("\n".join(lines) + "\n", encoding="utf-8")
         print(f"remote list: {rpath}\nupload script (PowerShell): {cmd}")
     return 0
