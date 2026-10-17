@@ -92,6 +92,8 @@ class Analyzer:
             raise AnalyzerNotReadyError(f"unsupported prompt version {cfg.prompt_version}")
         self.cfg = cfg
         self.catalog = catalog
+        self.last_trace: dict | None = None
+        self.extra_body: dict | None = None  # только экспериментальные серверы (dev_eval); production — None
         self.client = client
         self.call_timeout_sec = call_timeout_sec
         self.ffmpeg, self.ffprobe = ffmpeg, ffprobe
@@ -106,7 +108,8 @@ class Analyzer:
         timeout = min(self.call_timeout_sec, remaining_seconds(deadline))
         resp = self.client.chat(pm.window_parts(win), pm.schema(idx), max_tokens=self.cfg.max_tokens,
                                 timeout=timeout, temperature=self.cfg.temperature, top_k=self.cfg.top_k,
-                                seed=self.cfg.seed, cache_prompt=self.cfg.cache_prompt)
+                                seed=self.cfg.seed, cache_prompt=self.cfg.cache_prompt,
+                                **({"extra_body": self.extra_body} if self.extra_body else {}))
         remaining_seconds(deadline)
         choice = resp["choices"][0]
         if choice.get("finish_reason") != "stop":
@@ -159,6 +162,7 @@ class Analyzer:
                                timeout=min(DECODE_TIMEOUT_SEC, remaining_seconds(deadline_monotonic)))
         timings["decode"] = (time.monotonic() - t) * 1000
         remaining_seconds(deadline_monotonic)
+        self.last_trace = None
         if self.mode == "facts":
             return self._analyze_facts(info, frames, job_dir, deadline_monotonic, timings, t_start)
 
@@ -234,6 +238,8 @@ class Analyzer:
         timings["inference"] = (time.monotonic() - t) * 1000
         t = time.monotonic()
         outcome = conditions.evaluate_cash01(timeline)
+        # Локальная структура условий для dev-проверки человеком; в AnalysisResult не входит.
+        self.last_trace = conditions.trace(timeline, outcome)
         unknown = sum(1 for x in timeline if "unknown" in (x.cashier, x.client))
         if not outcome.events and outcome.insufficient:
             # Неизвестное не превращается ни в нарушение, ни в его отсутствие.

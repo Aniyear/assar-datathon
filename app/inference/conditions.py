@@ -15,6 +15,9 @@
 
 Неизвестное (unknown) в проверяемом интервале, отсутствие, обрезанное началом/концом видео, и отсутствие
 неизвестной длины — «не установлено» (insufficient), а не нарушение и не его отсутствие.
+
+Каждое условие кандидата хранится структурированно: confirmed / refuted / not_established и кадры,
+на которых основана оценка. Это оценки модели по кадрам, а не гарантированная истина.
 """
 from __future__ import annotations
 
@@ -23,11 +26,22 @@ from typing import Literal, Sequence
 
 Tri = Literal["yes", "no", "unknown"]
 TRI = ("yes", "no", "unknown")
+Status = Literal["confirmed", "refuted", "not_established"]
 
 # Инженерные границы, заданы до прогонов и не подобраны по данным: при шаге 1 с — уход ≥ 2 с между
 # первым и последним кадром отсутствия; контекст обслуживания — до 15 с до и после.
 MIN_ABSENCE_FRAMES = 3
 CONTEXT_SEC = 15.0
+
+CONDITIONS = ("cashier_absent", "client_present_during_absence", "service_before", "service_after",
+              "interval_complete")
+CONDITION_RU = {
+    "cashier_absent": f"Кассира нет на рабочем месте ≥ {MIN_ABSENCE_FRAMES} кадров подряд",
+    "client_present_during_absence": "Клиент у кассы на каждом кадре отсутствия",
+    "service_before": f"До ухода (≤ {CONTEXT_SEC:g} с) видно обслуживание, клиент у кассы непрерывно",
+    "service_after": f"После возвращения (≤ {CONTEXT_SEC:g} с) видно обслуживание, клиент у кассы непрерывно",
+    "interval_complete": "Отсутствие не обрезано началом/концом видео",
+}
 
 
 @dataclass(frozen=True)
@@ -40,18 +54,49 @@ class FrameFacts:
 
 
 @dataclass
+class ConditionCheck:
+    status: Status
+    frames: list[int]   # индексы кадров, на которых основана оценка
+    note: str = ""
+
+
+@dataclass
 class Candidate:
-    pre: FrameFacts            # кадр обслуживания до ухода
-    absent: list[FrameFacts]   # кадры отсутствия кассира
-    post: FrameFacts           # кадр обслуживания после возвращения
+    """Отсутствие кассира ≥ MIN_ABSENCE_FRAMES кадров и оценка каждого условия."""
+    absent: list[FrameFacts]
+    checks: dict[str, ConditionCheck]
+    pre: FrameFacts | None = None    # кадр обслуживания до ухода
+    post: FrameFacts | None = None   # кадр обслуживания после возвращения
+
+    @property
+    def decision(self) -> Literal["event", "excluded", "insufficient"]:
+        statuses = [c.status for c in self.checks.values()]
+        if "refuted" in statuses:
+            return "excluded"
+        if "not_established" in statuses:
+            return "insufficient"
+        return "event"
 
 
 @dataclass
 class Cash01Outcome:
-    events: list[Candidate] = field(default_factory=list)
-    insufficient: list[str] = field(default_factory=list)   # причины «не установлено»
-    excluded: list[str] = field(default_factory=list)       # контрпримеры / неполные условия
-    absence_runs: int = 0
+    candidates: list[Candidate] = field(default_factory=list)
+
+    @property
+    def events(self) -> list[Candidate]:
+        return [c for c in self.candidates if c.decision == "event"]
+
+    @property
+    def insufficient(self) -> list[Candidate]:
+        return [c for c in self.candidates if c.decision == "insufficient"]
+
+    @property
+    def excluded(self) -> list[Candidate]:
+        return [c for c in self.candidates if c.decision == "excluded"]
+
+    @property
+    def absence_runs(self) -> int:
+        return len(self.candidates)
 
 
 def _runs(tl: Sequence[FrameFacts]) -> list[tuple[int, int]]:
@@ -68,58 +113,66 @@ def _runs(tl: Sequence[FrameFacts]) -> list[tuple[int, int]]:
     return out
 
 
-def _find_service(tl: Sequence[FrameFacts], edge: int, step: int, t_edge: float) -> tuple[str, FrameFacts | None]:
+def _find_service(tl: Sequence[FrameFacts], edge: int, step: int, t_edge: float) -> tuple[ConditionCheck, FrameFacts | None]:
     """От края отсутствия идём наружу (step=-1 назад, +1 вперёд) в пределах CONTEXT_SEC.
 
-    Возвращает ("ok", кадр) | ("insufficient", None) | ("excluded", None). Клиент должен быть у кассы на
-    всех кадрах между краем и кадром обслуживания.
+    Клиент должен быть у кассы на всех кадрах между краем и кадром обслуживания.
     """
-    i, saw_unknown = edge, False
+    i, seen, saw_unknown = edge, [], False
     while 0 <= i < len(tl) and abs(tl[i].pts_sec - t_edge) <= CONTEXT_SEC:
         f = tl[i]
+        seen.append(f.index)
         if f.client == "no":
-            return "excluded", None
+            return ConditionCheck("refuted", seen, "client not at counter between service and absence"), None
         if f.client == "unknown":
-            return "insufficient", None
+            return ConditionCheck("not_established", seen, "client presence unknown"), None
         if f.cashier == "yes" and f.service == "yes":
-            return "ok", f
+            return ConditionCheck("confirmed", seen), f
         if f.service == "unknown" or f.cashier == "unknown":
             saw_unknown = True
         i += step
-    if not (0 <= i < len(tl)):  # контекст обрезан началом/концом видео
-        return "insufficient", None
-    return ("insufficient", None) if saw_unknown else ("excluded", None)
+    if not (0 <= i < len(tl)):
+        return ConditionCheck("not_established", seen, "context cut by video start/end"), None
+    if saw_unknown:
+        return ConditionCheck("not_established", seen, "service unknown in context"), None
+    return ConditionCheck("refuted", seen, "no visible service in context"), None
+
+
+def _assess(tl: Sequence[FrameFacts], a: int, b: int) -> Candidate:
+    run = list(tl[a:b + 1])
+    idx = [f.index for f in run]
+    checks: dict[str, ConditionCheck] = {}
+    if any(f.cashier == "unknown" for f in run):
+        checks["cashier_absent"] = ConditionCheck("not_established", idx, "cashier presence unknown")
+    else:
+        checks["cashier_absent"] = ConditionCheck("confirmed", idx)
+    if any(f.client == "no" for f in run):
+        checks["client_present_during_absence"] = ConditionCheck("refuted", idx, "client left")
+    elif any(f.client == "unknown" for f in run):
+        checks["client_present_during_absence"] = ConditionCheck("not_established", idx, "client unknown")
+    else:
+        checks["client_present_during_absence"] = ConditionCheck("confirmed", idx)
+    cut = a == 0 or b == len(tl) - 1
+    checks["interval_complete"] = ConditionCheck("not_established" if cut else "confirmed",
+                                                 [idx[0] if a == 0 else idx[-1]] if cut else [])
+    pre = post = None
+    if a > 0:
+        checks["service_before"], pre = _find_service(tl, a - 1, -1, run[0].pts_sec)
+    else:
+        checks["service_before"] = ConditionCheck("not_established", [], "absence starts at video start")
+    if b < len(tl) - 1:
+        checks["service_after"], post = _find_service(tl, b + 1, +1, run[-1].pts_sec)
+    else:
+        checks["service_after"] = ConditionCheck("not_established", [], "absence ends at video end")
+    return Candidate(absent=run, checks={k: checks[k] for k in CONDITIONS}, pre=pre, post=post)
 
 
 def evaluate_cash01(timeline: Sequence[FrameFacts]) -> Cash01Outcome:
     tl = sorted(timeline, key=lambda f: f.pts_sec)
     out = Cash01Outcome()
     for a, b in _runs(tl):
-        run = tl[a:b + 1]
-        if len(run) < MIN_ABSENCE_FRAMES:
-            continue  # краткое отсутствие/перекрытие не доказывает уход
-        out.absence_runs += 1
-        where = f"{run[0].pts_sec:.1f}-{run[-1].pts_sec:.1f}s"
-        if any(f.cashier == "unknown" for f in run):
-            out.insufficient.append(f"{where}: cashier presence unknown")
-            continue
-        if any(f.client == "no" for f in run):
-            out.excluded.append(f"{where}: client not at counter during absence")
-            continue
-        if any(f.client == "unknown" for f in run):
-            out.insufficient.append(f"{where}: client presence unknown")
-            continue
-        if a == 0 or b == len(tl) - 1:
-            out.insufficient.append(f"{where}: absence cut by video start/end")
-            continue
-        pre_state, pre = _find_service(tl, a - 1, -1, run[0].pts_sec)
-        post_state, post = _find_service(tl, b + 1, +1, run[-1].pts_sec)
-        if "excluded" in (pre_state, post_state):
-            out.excluded.append(f"{where}: service before/after absence not established")
-        elif "insufficient" in (pre_state, post_state):
-            out.insufficient.append(f"{where}: service context unknown")
-        else:
-            out.events.append(Candidate(pre=pre, absent=list(run), post=post))
+        if b - a + 1 >= MIN_ABSENCE_FRAMES:  # краткое отсутствие/перекрытие не доказывает уход
+            out.candidates.append(_assess(tl, a, b))
     return out
 
 
@@ -130,3 +183,17 @@ def describe(c: Candidate) -> str:
             f"документов); {a:.1f}–{b:.1f} с — кассира нет на рабочем месте ({len(c.absent)} кадров подряд), "
             f"клиент остаётся у кассы; {c.post.pts_sec:.1f} с — кассир на месте, обслуживание клиента "
             "продолжается. Клиент у кассы присутствует непрерывно; личность не устанавливалась")
+
+
+def trace(timeline: Sequence[FrameFacts], outcome: Cash01Outcome) -> dict:
+    """Локальная структура для проверки человеком (не входит в публичный результат)."""
+    return {
+        "timeline": [[f.index, round(f.pts_sec, 3), f.cashier, f.client, f.service]
+                     for f in sorted(timeline, key=lambda f: f.pts_sec)],
+        "candidates": [{
+            "decision": c.decision,
+            "absent": [c.absent[0].pts_sec, c.absent[-1].pts_sec],
+            "pre": c.pre.index if c.pre else None, "post": c.post.index if c.post else None,
+            "checks": {k: {"status": v.status, "frames": v.frames, "note": v.note} for k, v in c.checks.items()},
+        } for c in outcome.candidates],
+    }

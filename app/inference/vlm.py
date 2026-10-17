@@ -84,7 +84,8 @@ class LlamaClient:
             return False
 
     def chat(self, parts: list[str | Path], schema: dict | None, *, max_tokens: int, timeout: float,
-             temperature: float = 0.0, top_k: int = 1, seed: int = 0, cache_prompt: bool = False) -> dict:
+             temperature: float = 0.0, top_k: int = 1, seed: int = 0, cache_prompt: bool = False,
+             extra_body: dict | None = None) -> dict:
         """parts: текст (str) и пути к JPEG (Path) в порядке подачи. Возвращает разобранный ответ сервера.
 
         timeout — socket timeout; без streaming сервер отвечает одним блоком, поэтому он близок к
@@ -99,6 +100,8 @@ class LlamaClient:
                 content.append({"type": "text", "text": p})
         body = {"messages": [{"role": "user", "content": content}], "temperature": temperature, "top_k": top_k,
                 "seed": seed, "max_tokens": max_tokens, "cache_prompt": cache_prompt, "stream": False}
+        if extra_body:  # только для экспериментальных серверов (например, vLLM); production не передаёт
+            body.update(extra_body)
         if schema is not None:
             body["response_format"] = {"type": "json_schema", "json_schema": {"name": "obs", "schema": schema}}
         req = urllib.request.Request(f"{self.base_url}/v1/chat/completions", data=json.dumps(body).encode(),
