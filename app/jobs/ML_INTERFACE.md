@@ -23,7 +23,7 @@ def create_analyzer(endpoint: str, model_cfg: dict, catalog: RuleCatalog,
   supervisor (Popen + Windows Job Object kill-on-close), он же читает `/health`
   (200 и `{"status":"ok"}`) без proxy и редиректов, и он же останавливает сервер.
 - `create_analyzer` — в отдельном Python-worker (multiprocessing spawn), один раз
-  на запуск worker, после health. `endpoint` = `http://127.0.0.1:<port>`.
+  на запуск worker, после health и после помещения worker в Job Object. `endpoint` = `http://127.0.0.1:<port>`.
   `catalog` содержит только `verified` правила. Возвращает `analyze_video`.
 
 ## Требования к `analyze_video(video_path, job_dir, deadline_monotonic)`
@@ -50,6 +50,9 @@ def create_analyzer(endpoint: str, model_cfg: dict, catalog: RuleCatalog,
 ## Готовность модели в config
 
 Backend стартует production только если в `configs/model.yaml`:
-`status == "ready"` и все значения `validation` равны `true`, а в каталоге есть
+`status == "ready"`; `validation` — ровно `weights_checked_on_this_host`,
+`gpu_3060_measured`, `analyze_video_implemented`, каждое JSON `true`; типы полей
+как в закреплённом config, `external_inference`/`audio_enabled`/
+`face_recognition_enabled` = `false`, `process_owner = "service_supervisor"`; в каталоге
 хотя бы одно `verified` правило. Значения выставляет интегратор после проверки на
 RTX 3060. Сейчас `pending_integration_and_3060_validation` → старт отклоняется.

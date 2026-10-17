@@ -13,6 +13,40 @@ from app.settings import Settings, configure_offline_environment
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+# Exact readiness flags of configs/model.yaml; each must be the JSON boolean true.
+REQUIRED_VALIDATION = frozenset({"weights_checked_on_this_host", "gpu_3060_measured",
+                                 "analyze_video_implemented"})
+# Required fields/types of the pinned config, plus safety flags with fixed values.
+_TYPED_FIELDS = {"schema_version": str, "status": str, "backend": str, "model_id": str,
+                 "model_revision": str, "runtime": dict, "weights": dict, "mmproj": dict,
+                 "server": dict, "generation": dict, "sampling": dict, "validation": dict}
+_FIXED_VALUES = {"schema_version": "0.1", "backend": "llama-server", "process_owner": "service_supervisor",
+                 "reuse_between_jobs": True, "external_inference": False, "audio_enabled": False,
+                 "face_recognition_enabled": False}
+
+
+def model_config_problems(cfg: object) -> list[str]:
+    """Readiness problems of a parsed model config; empty list means ready."""
+    if not isinstance(cfg, dict):
+        return ["model config is not a JSON object"]
+    problems = [f"model config field {name!r} must be {kind.__name__}"
+                for name, kind in _TYPED_FIELDS.items() if type(cfg.get(name)) is not kind]
+    problems += [f"model config field {name!r} must be {value!r}"
+                 for name, value in _FIXED_VALUES.items()
+                 if type(cfg.get(name)) is not type(value) or cfg.get(name) != value]
+    if cfg.get("status") != "ready":
+        problems.append(f"model status is {cfg.get('status')!r}, expected 'ready'")
+    validation = cfg.get("validation")
+    if isinstance(validation, dict):
+        keys = set(validation)
+        if keys != REQUIRED_VALIDATION:
+            problems.append("model validation flags must be exactly "
+                            + ", ".join(sorted(REQUIRED_VALIDATION)))
+        if not all(validation.get(k) is True for k in REQUIRED_VALIDATION):
+            problems.append("model validation flags are not all true")
+    return problems
+
+
 class ServiceNotReady(RuntimeError):
     """Explicit production refusal. The message lists reasons, never secrets or scene data."""
 
@@ -32,11 +66,7 @@ def production_spec(settings: Settings) -> RuntimeSpec:
         model_cfg = json.loads(settings.model_config_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         raise ServiceNotReady("model config is missing or not valid JSON") from None
-    if model_cfg.get("status") != "ready":
-        reasons.append(f"model status is {model_cfg.get('status')!r}, expected 'ready'")
-    validation = model_cfg.get("validation") or {}
-    if not validation or not all(value is True for value in validation.values()):
-        reasons.append("model validation flags are not all true")
+    reasons += model_config_problems(model_cfg)
     try:
         catalog = verified_only(load_catalog(settings.rules_catalog_path))
     except (OSError, ValueError):

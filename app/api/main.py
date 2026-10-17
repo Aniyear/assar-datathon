@@ -23,6 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api.upload import UploadRejected, receive_mov
 from app.contracts import AnalyzeAccepted
 from app.jobs.media import InvalidVideo, probe_mov
+from app.jobs.procs import ProcessOwner
 from app.jobs.runtime import REPO_ROOT, production_spec
 from app.jobs.store import JobStore
 from app.jobs.supervisor import InstanceLock, RuntimeSpec, State, Supervisor, Ticket
@@ -38,6 +39,7 @@ class _Service:
     settings: Settings
     store: JobStore
     supervisor: Supervisor
+    probes: ProcessOwner  # Pre-admission ffprobe/ffmpeg; killed on shutdown.
 
 
 def create_app(settings: Settings | None = None,
@@ -52,11 +54,13 @@ def create_app(settings: Settings | None = None,
         for job_id in store.fail_unfinished("ServiceRestart"):
             _remove_job_files(s, job_id)
         supervisor = Supervisor(s, spec, store)
+        probes = ProcessOwner()
         try:
             await to_thread.run_sync(supervisor.start)
-            app.state.service = _Service(s, store, supervisor)
+            app.state.service = _Service(s, store, supervisor, probes)
             yield
         finally:
+            probes.close()
             await to_thread.run_sync(supervisor.close)
             store.close()
             lock.release()
@@ -90,8 +94,9 @@ def create_app(settings: Settings | None = None,
             # A slow client must not hold the only slot past the request budget.
             with fail_after(max(0.0, request_deadline - s.response_reserve_sec - time.monotonic())):
                 await receive_mov(request, video, s.max_upload_bytes)
-            budget = min(PROBE_TIMEOUT_SEC, request_deadline - s.response_reserve_sec - time.monotonic())
-            duration = await to_thread.run_sync(probe_mov, video, budget)
+            probe_deadline = min(time.monotonic() + PROBE_TIMEOUT_SEC,
+                                 request_deadline - s.response_reserve_sec)
+            duration = await to_thread.run_sync(probe_mov, video, probe_deadline, svc.probes)
             job_dir.mkdir(parents=True)
             svc.store.create(job_id)
             svc.supervisor.submit(Ticket(job_id, video, job_dir, duration, request_deadline))
