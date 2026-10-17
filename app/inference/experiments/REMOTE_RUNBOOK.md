@@ -48,21 +48,22 @@ cd ~/assar-ml
 .venv/bin/python -m app.inference.experiments.fetch --variants 2b-q8,4b-q4km --platform linux-x64
 ```
 
-## 4. Видео (с ноутбука, PowerShell; путь к серверу подставить свой)
+## 4. Видео (с ноутбука)
+
+Списки собираются локально из CSV split'а Анияра с проверкой SHA256 (одна запись на группу: X-47 — копия
+X-4 и не дублируется; метки только для выбранных файлов, для оценщика):
 
 ```powershell
-scp "C:\Users\Omar\Desktop\assar-datathon\data\raw\videos\<dev-файл>.mov" user@remote-host:~/assar-ml/data/dev/
+.\.venv\Scripts\python.exe -m app.inference.experiments.make_video_list --split-csv outputs\experiments\dev_files_for_omar.csv --videos-dir C:\Users\Omar\Desktop\assar-datathon\data\raw\videos --labels-csv C:\Users\Omar\Desktop\assar-datathon\data\labels_normalized.csv --diagnostic X-4 --splits dev --out outputs\experiments\videos.dev.local.json --remote-dir /home/user/assar-ml/data/dev
 ```
 
-Каталог `data/` исключён из Git. На сервере — список `outputs/experiments/videos.dev.local.json`:
+Загрузка на сервер (8 видео и список для сервера; проверить домашний каталог пользователя на сервер):
 
-```json
-[
-  {"id": "diag-1", "path": "/home/user/assar-ml/data/dev/X-4.mov", "role": "diagnostic", "source_label": "violation"},
-  {"id": "dev-1", "path": "/home/user/assar-ml/data/dev/<файл>.mov", "role": "dev", "source_label": "violation"},
-  {"id": "dev-2", "path": "/home/user/assar-ml/data/dev/<файл>.mov", "role": "dev", "source_label": "no_violation"}
-]
+```powershell
+powershell -ExecutionPolicy Bypass -File outputs\experiments\videos.dev.local.scp.ps1
 ```
+
+Каталог `data/` исключён из Git. Полная таблица меток на сервер не переносится.
 
 ## 5. Прогон 2B и 4B (по очереди, один сервер на GPU 0)
 
