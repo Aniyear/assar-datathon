@@ -26,7 +26,7 @@ from pathlib import Path
 
 from app.contracts import AnalysisError, RuleCatalog
 
-from .. import facts_prompt, facts_v2, facts_v3, facts_v4, facts_v5, rules_v2, rules_v4
+from .. import facts_prompt, facts_v2, facts_v3, facts_v4, facts_v5, facts_v6, rules_v2, rules_v4, rules_v6
 from ..analyzer import Analyzer
 from ..bench_baseline import VramMonitor
 from ..config import load_model_config
@@ -93,8 +93,25 @@ EVAL_RULES_V4 = [EVAL_RULES_V2[0], EVAL_RULES_V2[1],
 EVAL_RULES_V4 = [r for r in EVAL_RULES_V4 if r["type_id"] != rules_v4.TYPE_SAFE01]
 
 
+EVAL_RULES_V6 = [
+    dict(_SRC, rule_id="EVAL-CASH-03-candidate", type_id=rules_v6.TYPE_CASH03,
+         type_name_ru="Ценности оставлены без присмотра на столе при уходе кассира", clause="п. 20, абзац второй",
+         scope="EVAL ONLY: хранение ранее принятых наличных на рабочем месте кассового работника",
+         observable_condition="cashier absent >= 3 frames while cash/coins/collection bag lie on the desk",
+         claim_template_ru="Это может указывать на хранение ранее принятых наличных вне устройств, закрывающихся на "
+                           "ключ (п. 20 Правил № 231); требуется проверка человеком."),
+    dict(_SRC, rule_id="EVAL-MULTI-01-candidate", type_id=rules_v6.TYPE_MULTI01,
+         type_name_ru="Одновременно у кассы несколько клиентов", clause="п. 20, абзац второй",
+         scope="EVAL ONLY: обслуживание клиента; на рабочем месте — наличные деньги обслуживаемого клиента",
+         observable_condition=">= 2 people other than the cashier in the room for >= 2 frames, cashier present",
+         claim_template_ru="Это может указывать на приём наличных у второго клиента до завершения операции с первым, "
+                           "при котором на рабочем месте оказываются деньги разных клиентов (п. 20 Правил № 231); "
+                           "требуется проверка человеком."),
+]
+
+
 def eval_catalog(mode: str = "v1") -> RuleCatalog:
-    rules = EVAL_RULES_V4 if mode in ("v4", "v5") else EVAL_RULES_V2 if mode in ("v2", "v3") else [EVAL_RULE]
+    rules = EVAL_RULES_V6 if mode == "v6" else EVAL_RULES_V4 if mode in ("v4", "v5") else EVAL_RULES_V2 if mode in ("v2", "v3") else [EVAL_RULE]
     return RuleCatalog.model_validate({"schema_version": "0.1", "rules": rules})
 
 
@@ -155,7 +172,7 @@ def main() -> int:
     ap.add_argument("--platform", choices=["windows-x64", "linux-x64"],
                     default="windows-x64" if sys.platform == "win32" else "linux-x64")
     ap.add_argument("--gpu", type=int, default=0, help="индекс GPU для замера памяти")
-    ap.add_argument("--mode", choices=["v1", "v2", "v3", "v4", "v5"], default="v4",
+    ap.add_argument("--mode", choices=["v1", "v2", "v3", "v4", "v5", "v6"], default="v6",
                     help="v1: CASH-01; v2: CASH-01/02, COLLECT-02 (6 полей на кадр); v3: то же, действия списком")
     ap.add_argument("--max-tokens", type=int, default=0, help="0 = 512 для v1/v3, 1024 для v2")
     ap.add_argument("--call-timeout", type=float, default=120.0)
@@ -176,8 +193,8 @@ def main() -> int:
     extra = json.loads(args.extra_body) if args.extra_body else None
     prompt_version = {"v1": facts_prompt.FACTS_PROMPT_VERSION, "v2": facts_v2.PROMPT_VERSION,
                       "v3": facts_v3.PROMPT_VERSION, "v4": facts_v4.PROMPT_VERSION,
-                      "v5": facts_v5.PROMPT_VERSION}[args.mode]
-    args.max_tokens = args.max_tokens or {"v1": 512, "v2": 1024, "v3": 512, "v4": 900, "v5": 500}[args.mode]
+                      "v5": facts_v5.PROMPT_VERSION, "v6": facts_v6.PROMPT_VERSION}[args.mode]
+    args.max_tokens = args.max_tokens or {"v1": 512, "v2": 1024, "v3": 512, "v4": 900, "v5": 500, "v6": 500}[args.mode]
     plan = [(args.label, None)] if args.endpoint else [(v.strip(), v.strip()) for v in args.variants.split(",")]
     report = {"prompt_version": prompt_version, "max_tokens": args.max_tokens,
               "rules": [r["rule_id"] for r in eval_catalog(args.mode).model_dump()["rules"]] + ["(EVAL, not production)"], "videos": len(videos), "variants": {},

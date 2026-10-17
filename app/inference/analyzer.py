@@ -17,7 +17,8 @@ from app.contracts import (SCHEMA_VERSION, AnalysisError, AnalysisResult, Analys
                            RuleCatalog, UnassessableVideoError, remaining_seconds, validate_analysis_for_video,
                            validate_analysis_rules)
 
-from . import conditions, facts_prompt, facts_v2, facts_v3, facts_v4, facts_v5, prompts, rules_v2, rules_v4
+from . import (conditions, facts_prompt, facts_v2, facts_v3, facts_v4, facts_v5, facts_v6, prompts, rules_v2,
+               rules_v4, rules_v6)
 from .config import ModelConfig, load_model_config, load_rule_catalog
 from .video import Frame, probe, sample_frames, windows
 from .vlm import LlamaClient
@@ -86,11 +87,13 @@ class Analyzer:
                                             f"with type_id {facts_prompt.SUPPORTED_TYPE_ID!r}")
             self.rules = {verified[0].type_id: verified[0]}
         elif cfg.prompt_version in (facts_v2.PROMPT_VERSION, facts_v3.PROMPT_VERSION, facts_v4.PROMPT_VERSION,
-                                    facts_v5.PROMPT_VERSION):
+                                    facts_v5.PROMPT_VERSION, facts_v6.PROMPT_VERSION):
             self.mode = "facts_v2"
             self.facts_pm = {facts_v2.PROMPT_VERSION: facts_v2, facts_v3.PROMPT_VERSION: facts_v3,
-                             facts_v4.PROMPT_VERSION: facts_v4, facts_v5.PROMPT_VERSION: facts_v5}[cfg.prompt_version]
-            self.rules_mod = rules_v4 if self.facts_pm in (facts_v4, facts_v5) else rules_v2
+                             facts_v4.PROMPT_VERSION: facts_v4, facts_v5.PROMPT_VERSION: facts_v5,
+                             facts_v6.PROMPT_VERSION: facts_v6}[cfg.prompt_version]
+            self.rules_mod = (rules_v6 if self.facts_pm is facts_v6 else
+                              rules_v4 if self.facts_pm in (facts_v4, facts_v5) else rules_v2)
             verified = [r for r in catalog.rules if r.status == "verified"]
             types = [r.type_id for r in verified]
             supported = self.facts_pm.SUPPORTED_TYPE_IDS
@@ -291,9 +294,9 @@ class Analyzer:
         rm = self.rules_mod
         timeline: list[rules_v2.Facts] = []
         for win in windows(frames, self.cfg.window_sec):
-            if self.facts_pm is facts_v5:  # специалисты: отдельный короткий запрос на каждую задачу
-                rows = facts_v5.merge([self._ask(win, deadline_monotonic, pm=p) for p in facts_v5.PASSES],
-                                      [f.index for f in win])
+            if self.facts_pm in (facts_v5, facts_v6):  # специалисты: отдельный короткий запрос на каждую задачу
+                rows = self.facts_pm.merge([self._ask(win, deadline_monotonic, pm=p) for p in self.facts_pm.PASSES],
+                                           [f.index for f in win])
             else:
                 rows = self.facts_pm.to_rows(self._ask(win, deadline_monotonic, pm=self.facts_pm))
             for e in rows:
@@ -307,8 +310,9 @@ class Analyzer:
                 if c.type_id == rules_v4.TYPE_ACCESS01 and c.decision == "event":
                     self._verify_access(c, by_index, deadline_monotonic)
         self.last_trace = rm.trace(timeline, cands)
-        unknown = sum(1 for x in timeline if "unknown" in (x["cashier_at_workplace"], x["client_at_counter"]))
-        cashier_unknown = sum(1 for x in timeline if x["cashier_at_workplace"] == "unknown")
+        unknown = sum(1 for x in timeline
+                      if "unknown" in (x.v.get("cashier_at_workplace"), x.v.get("client_at_counter")))
+        cashier_unknown = sum(1 for x in timeline if x.v.get("cashier_at_workplace") == "unknown")
         if cashier_unknown * 10 >= len(timeline) * 9:
             # Непригодно только если модель не может судить даже о кассире почти на всех кадрах; неуверенность
             # о клиенте — limitation, а не отказ (FAQ 15: злоупотребление «недостаточно данных» штрафуется).
