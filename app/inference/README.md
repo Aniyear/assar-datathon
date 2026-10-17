@@ -45,10 +45,21 @@ SHA256 скачиваемых файлов (их проверяет `fetch_runti
 - **CUDA Toolkit** ставить не нужно. На машине рабочего запуска Toolkit не установлен, `CUDA_PATH` не задан.
   Если Toolkit другой версии стоит в `PATH`, DLL из каталога `llama-server.exe` всё равно грузятся первыми.
 
-## 1. Подготовка (один раз, нужен интернет)
+## Зависимости
 
-Нужны Python ≥ 3.10 (стандартная библиотека; для тестов — `pytest`) и FFmpeg/ffprobe в `PATH`.
-Около 3,3 ГБ на диске для `models/` (исключён из Git).
+| Слой | Что нужно | Как установлено |
+|---|---|---|
+| Python runtime (`app/inference/*.py`) | Python ≥ 3.10, только стандартная библиотека | Проверено разбором импортов всех модулей `app/inference/`: сторонних пакетов нет |
+| Тесты (`tests/inference/`) | `pytest` | Отдельная dev-зависимость; для inference не нужна |
+| Внешний runtime: FFmpeg/ffprobe | В `PATH` | Ставится отдельно; проверено с 7.1.1 essentials (gyan.dev) |
+| Внешний runtime: llama.cpp `b11669` | `llama-server.exe` и DLL | `fetch_runtime.py` → `models/llama.cpp-b11669/` |
+| Внешний runtime: CUDA runtime DLL | `cudart64_12.dll`, `cublas64_12.dll`, `cublasLt64_12.dll` | `fetch_runtime.py` из архива `cudart-…-cuda-12.4` (см. раздел о CUDA) |
+| Драйвер NVIDIA | ≥ 551.61 (Windows, CUDA 12.4) | Системный |
+| Веса | GGUF Q8_0 + mmproj Q8_0 | `fetch_runtime.py` → `models/qwen3-vl-2b/` |
+
+`models/` занимает около 3,3 ГБ и исключён из Git.
+
+## 1. Подготовка (один раз, нужен интернет)
 
 ```powershell
 nvidia-smi --query-gpu=name,driver_version,memory.total,memory.used --format=csv
@@ -71,6 +82,8 @@ python app/inference/fetch_runtime.py --dest models
 
 ## 2. Тесты (синтетическое видео, без данных датасета)
 
+Нужен `pytest` (только для тестов) и FFmpeg в `PATH`.
+
 ```powershell
 python -m pytest -q tests/inference
 ```
@@ -92,7 +105,21 @@ python -m app.inference.bench_baseline --video $v --repeat 2 --quant Q8_0 --mmpr
 Сравнение ответов двух прогонов по хешам, без вывода содержимого:
 
 ```powershell
-python -c "import json,hashlib,sys; L=lambda d:[hashlib.sha256(json.loads(l)['content'].encode()).hexdigest() for l in open(d+'/windows.jsonl',encoding='utf-8')]; a,b=L(sys.argv[1]),L(sys.argv[2]); print(f'identical {sum(x==y for x,y in zip(a,b))}/{len(a)}')" outputs/bench/<run1> outputs/bench/<run2>
+$run1 = 'outputs\bench\<run1>'
+$run2 = 'outputs\bench\<run2>'
+```
+
+```powershell
+@'
+import hashlib, json, sys
+
+def hashes(run_dir):
+    with open(run_dir + "/windows.jsonl", encoding="utf-8") as f:
+        return [hashlib.sha256(json.loads(line)["content"].encode()).hexdigest() for line in f]
+
+a, b = hashes(sys.argv[1]), hashes(sys.argv[2])
+print(f"identical {sum(x == y for x, y in zip(a, b))}/{len(a)}")
+'@ | python - $run1 $run2
 ```
 
 ## Измерения: RTX 3050 Laptop 4 ГБ, 17.10.2026
