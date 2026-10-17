@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>assar — Видеоконтроль кассовых операций</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Заметный баннер деморежима (скрыт по умолчанию, так как используется реальный API) -->
+  <div id="demoBanner" class="demo-banner hidden" role="status" aria-live="polite">
+    <div class="demo-banner__inner">
+      <span class="demo-banner__badge">ДЕМОРЕЖИМ — СИНТЕТИЧЕСКИЕ ДАННЫЕ</span>
+      <span class="demo-banner__text">
+        Реальный API отключён. Отображаются синтетические тестовые данные для проверки интерфейса — это не результаты работы модели и не правовые заключения.
+      </span>
+    </div>
+  </div>
+
+  <header class="topbar">
+    <div class="container topbar__inner">
+      <div class="brand">
+        <div class="brand__mark" aria-hidden="true">a</div>
+        <div class="brand__titles">
+          <span class="brand__name">assar</span>
+          <span class="brand__subtitle">Система автоматизированной проверки кассовых видеозаписей</span>
+        </div>
+      </div>
+
+      <div class="topbar__controls">
+        <label class="demo-switch" for="demoModeToggle" title="Переключить в демонстрационный режим с синтетическими примерами без отправки видео на сервер">
+          <input type="checkbox" id="demoModeToggle">
+          <span class="demo-switch__label">Деморежим</span>
+        </label>
+      </div>
+    </div>
+  </header>
+
+  <main class="container main-content">
+    <!-- Панель настроек доступа и деморежима -->
+    <section class="card auth-card" aria-labelledby="authHeading">
+      <div class="auth-card__grid">
+        <div class="auth-card__field">
+          <div class="section-title-row">
+            <h2 id="authHeading" class="card__title">Доступ к API</h2>
+            <span id="keyStatusBadge" class="badge badge--neutral">Ключ не задан</span>
+          </div>
+          <p class="card__hint">
+            Ключ нужен для отправки видео и получения результата. Он хранится только в памяти вкладки и очищается при перезагрузке страницы.
+          </p>
+          <div class="input-group">
+            <label for="apiKeyInput" class="sr-only">API-ключ (X-API-Key)</label>
+            <input
+              type="password"
+              id="apiKeyInput"
+              class="text-input"
+              placeholder="Введите X-API-Key..."
+              autocomplete="off"
+              spellcheck="false"
+            >
+            <button type="button" id="toggleKeyVisibilityBtn" class="btn btn--secondary" aria-label="Показать или скрыть ключ">
+              Показать
+            </button>
+            <button type="button" id="clearKeyBtn" class="btn btn--ghost">
+              Очистить
+            </button>
+          </div>
+        </div>
+
+        <!-- Настройки сценария для деморежима -->
+        <div id="demoSettingsBox" class="demo-settings hidden">
+          <h3 class="demo-settings__title">Сценарий синтетического ответа</h3>
+          <p class="card__hint">Выберите синтетический сценарий для проверки интерфейса:</p>
+          <select id="demoScenarioSelect" class="select-input">
+            <option value="violation">done / violation (2 синтетических события, 1 и 3 кадра)</option>
+            <option value="no_violation">done / no_violation (нарушений не выявлено)</option>
+            <option value="failed">failed (сбой обработки задания после приёма)</option>
+            <option value="http_401">HTTP 401 (неверный X-API-Key)</option>
+            <option value="http_415">HTTP 415 (неподдерживаемый формат файла)</option>
+            <option value="http_422">HTTP 422 (повреждённый файл до создания задания)</option>
+            <option value="http_503">HTTP 503 (сервис временно занят)</option>
+          </select>
+        </div>
+      </div>
+    </section>
+
+    <!-- Блок уведомлений об ошибках -->
+    <section id="errorAlert" class="alert alert--error hidden" role="alert" aria-live="assertive">
+      <div class="alert__header">
+        <strong id="errorTitle" class="alert__title">Ошибка выполнения запроса</strong>
+        <span id="errorCodeBadge" class="badge badge--error hidden"></span>
+      </div>
+      <p id="errorMessage" class="alert__body"></p>
+      <div class="alert__actions">
+        <button type="button" id="errorResetBtn" class="btn btn--secondary btn--sm">Сбросить и выбрать файл заново</button>
+      </div>
+    </section>
+
+    <p id="notice" class="card hidden" role="status" aria-live="polite"></p>
+
+    <!-- Состояние 1: Загрузка видеофайла -->
+    <section id="uploadSection" class="card upload-card" aria-labelledby="uploadHeading">
+      <div class="card__header">
+        <h2 id="uploadHeading" class="card__title">Загрузка кассового видео на проверку</h2>
+        <span class="badge badge--outline">Формат: .mov (до 100 МиБ)</span>
+      </div>
+
+      <div id="dropZone" class="dropzone" tabindex="0" role="button" aria-label="Выберите видеофайл формата MOV или перетащите его сюда">
+        <input type="file" id="fileInput" class="sr-only" accept=".mov,video/quicktime">
+        <div class="dropzone__icon" aria-hidden="true">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+        </div>
+        <p class="dropzone__primary">Перетащите файл <strong>.mov</strong> в эту область или нажмите для выбора</p>
+        <p class="dropzone__secondary">Поддерживаются видеозаписи кассовых операций в контейнере QuickTime (.mov, H.264). Анализ выполняется локально без внешних сервисов.</p>
+      </div>
+
+      <div id="selectedFilePanel" class="selected-file hidden">
+        <div class="selected-file__info">
+          <span class="selected-file__label">Выбранный файл:</span>
+          <strong id="selectedFileName" class="selected-file__name"></strong>
+          <span id="selectedFileSize" class="selected-file__meta"></span>
+        </div>
+        <div class="selected-file__actions">
+          <button type="button" id="changeFileBtn" class="btn btn--ghost btn--sm">Заменить файл</button>
+          <button type="button" id="startAnalysisBtn" class="btn btn--primary">Отправить на анализ</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="videoPanel" class="card hidden" aria-labelledby="videoHeading">
+      <h2 id="videoHeading" class="card__title">Локальный предпросмотр</h2>
+      <video id="localVideo" controls muted playsinline preload="metadata" aria-label="Выбранное видео"></video>
+      <p id="videoMessage" class="card__hint" role="status" aria-live="polite"></p>
+    </section>
+
+    <!-- Состояние 2: Ожидание завершения обработки (без выдуманных процентов готовности) -->
+    <section id="processingSection" class="card processing-card hidden" aria-labelledby="processingHeading" aria-live="polite">
+      <div class="processing-card__layout">
+        <div class="spinner" aria-hidden="true"></div>
+        <div class="processing-card__content">
+          <div class="section-title-row">
+            <h2 id="processingHeading" class="card__title">Выполняется анализ видеозаписи</h2>
+            <span class="badge badge--processing">Ожидание</span>
+          </div>
+          <p id="processingDescription" class="processing-card__desc">
+            Ожидаем результат анализа. Процент готовности недоступен.
+          </p>
+
+          <dl class="meta-grid">
+            <div class="meta-item">
+              <dt>Идентификатор задания</dt>
+              <dd id="processingJobId" class="mono">—</dd>
+            </div>
+            <div class="meta-item">
+              <dt>Проверяемый файл</dt>
+              <dd id="processingFileName">—</dd>
+            </div>
+            <div class="meta-item">
+              <dt>Время с момента отправки</dt>
+              <dd id="processingElapsed" class="mono">00:00</dd>
+            </div>
+          </dl>
+
+          <p class="card__hint">Остановка ожидания действует только в браузере. Уже принятое сервером задание продолжит обрабатываться.</p>
+          <div class="processing-card__actions">
+            <button type="button" id="cancelPollingBtn" class="btn btn--secondary btn--sm">
+              Остановить ожидание
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Состояние 3: Итог анализа и список обнаруженных событий -->
+    <section id="resultSection" class="result-section hidden" aria-labelledby="resultHeading">
+      <div id="verdictBanner" class="card verdict-card">
+        <div class="verdict-card__header">
+          <div>
+            <span class="verdict-card__eyebrow">Итоговый вердикт проверки</span>
+            <h2 id="resultHeading" class="verdict-card__title">—</h2>
+            <p id="verdictSubtitle" class="verdict-card__subtitle"></p>
+          </div>
+          <div class="verdict-card__badges">
+            <span id="verdictRawBadge" class="badge mono"></span>
+            <button type="button" id="newUploadBtn" class="btn btn--primary">
+              Загрузить другое видео
+            </button>
+          </div>
+        </div>
+
+        <dl class="meta-grid meta-grid--compact">
+          <div class="meta-item">
+            <dt>Задание</dt>
+            <dd id="resultJobId" class="mono">—</dd>
+          </div>
+          <div class="meta-item">
+            <dt>Статус</dt>
+            <dd id="resultStatus" class="mono">—</dd>
+          </div>
+          <div class="meta-item">
+            <dt>Файл</dt>
+            <dd id="resultFileName">—</dd>
+          </div>
+          <div class="meta-item">
+            <dt>Зафиксировано событий</dt>
+            <dd id="resultEventsCount" class="mono">0</dd>
+          </div>
+        </dl>
+      </div>
+
+      <!-- Список карточек событий -->
+      <div id="violationsContainer" class="violations-container hidden">
+        <div class="violations-header">
+          <h3 class="violations-header__title">Зафиксированные события и кадры-доказательства</h3>
+          <span class="violations-header__hint">Нажмите на кадр для детального просмотра</span>
+        </div>
+        <div id="violationsList" class="violations-list"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer__inner">
+      <span>Прототип <strong>assar</strong> (v0.1) — кейс ForteBank Datathon. Не является официальным продуктом банка.</span>
+      <span>Только локальный визуальный анализ фактов по проверенному каталогу правил.</span>
+    </div>
+  </footer>
+
+  <!-- Модальное окно для полноразмерного просмотра кадра-доказательства -->
+  <div id="imageModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div id="modalBackdrop" class="modal__backdrop"></div>
+    <div class="modal__dialog">
+      <div class="modal__header">
+        <div>
+          <h3 id="modalTitle" class="modal__title">Кадр-доказательство</h3>
+          <p id="modalMeta" class="modal__meta mono"></p>
+        </div>
+        <button type="button" id="closeModalBtn" class="btn btn--ghost btn--sm" aria-label="Закрыть окно просмотра">
+          Закрыть (Esc)
+        </button>
+      </div>
+      <div class="modal__body">
+        <img id="modalImage" class="modal__image" alt="Увеличенный кадр-доказательство">
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
