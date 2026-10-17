@@ -57,3 +57,7 @@ def validate(obj, frame_indices: list[int]) -> bool:
             return False
         seen.append(e["index"])
     return sorted(seen) == sorted(frame_indices)
+
+
+def to_rows(obj) -> list[dict]:
+    return obj["frames"]

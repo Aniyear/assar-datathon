@@ -26,7 +26,7 @@ from pathlib import Path
 
 from app.contracts import AnalysisError, RuleCatalog
 
-from .. import facts_prompt, facts_v2, rules_v2
+from .. import facts_prompt, facts_v2, facts_v3, rules_v2
 from ..analyzer import Analyzer
 from ..bench_baseline import VramMonitor
 from ..config import load_model_config
@@ -71,7 +71,7 @@ EVAL_RULES_V2 = [
 
 
 def eval_catalog(mode: str = "v1") -> RuleCatalog:
-    rules = EVAL_RULES_V2 if mode == "v2" else [EVAL_RULE]
+    rules = EVAL_RULES_V2 if mode in ("v2", "v3") else [EVAL_RULE]
     return RuleCatalog.model_validate({"schema_version": "0.1", "rules": rules})
 
 
@@ -132,8 +132,9 @@ def main() -> int:
     ap.add_argument("--platform", choices=["windows-x64", "linux-x64"],
                     default="windows-x64" if sys.platform == "win32" else "linux-x64")
     ap.add_argument("--gpu", type=int, default=0, help="индекс GPU для замера памяти")
-    ap.add_argument("--mode", choices=["v1", "v2"], default="v2", help="v1: CASH-01; v2: CASH-01/02, COLLECT-02")
-    ap.add_argument("--max-tokens", type=int, default=0, help="0 = 512 для v1, 1024 для v2")
+    ap.add_argument("--mode", choices=["v1", "v2", "v3"], default="v2",
+                    help="v1: CASH-01; v2: CASH-01/02, COLLECT-02 (6 полей на кадр); v3: то же, действия списком")
+    ap.add_argument("--max-tokens", type=int, default=0, help="0 = 512 для v1/v3, 1024 для v2")
     ap.add_argument("--call-timeout", type=float, default=120.0)
     ap.add_argument("--budget-sec", type=float, default=240.0)
     ap.add_argument("--out", type=Path, default=ROOT / "outputs" / "dev_eval")
@@ -144,7 +145,8 @@ def main() -> int:
     base = load_model_config(ROOT / "configs/model.yaml")
     run_root = args.out / datetime.now().strftime("%Y%m%d-%H%M%S")
     extra = json.loads(args.extra_body) if args.extra_body else None
-    prompt_version = facts_v2.PROMPT_VERSION if args.mode == "v2" else facts_prompt.FACTS_PROMPT_VERSION
+    prompt_version = {"v1": facts_prompt.FACTS_PROMPT_VERSION, "v2": facts_v2.PROMPT_VERSION,
+                      "v3": facts_v3.PROMPT_VERSION}[args.mode]
     args.max_tokens = args.max_tokens or (1024 if args.mode == "v2" else 512)
     plan = [(args.label, None)] if args.endpoint else [(v.strip(), v.strip()) for v in args.variants.split(",")]
     report = {"prompt_version": prompt_version, "max_tokens": args.max_tokens,

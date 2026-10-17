@@ -152,3 +152,33 @@ def test_v2_event_of_type_without_rule_is_not_reported(cfg, video, tmp_path):
     pat = {8: "yynynn", 10: "ynnnyn", 11: "ynnnyn", 12: "ynnnyn"}
     res, _, _ = run(cfg, responder(pat), video, tmp_path, cat=catalog(synthetic_rule(type_id=rules_v2.TYPE_CASH01)))
     assert res.verdict == "no_violation" and any("without a verified rule" in x for x in res.limitations)
+
+
+# --- cash-events-v3: действия списком кадров ------------------------------------------------------------
+from app.inference import facts_v3  # noqa: E402
+
+
+def test_v3_schema_validate_and_rows():
+    obj = {"presence": [{"index": i, "cashier": "yes", "client": "no", "collector": "unknown"} for i in (3, 4)],
+           "counting_frames": [4], "bag_open_frames": [], "service_frames": [3]}
+    assert facts_v3.validate(obj, [3, 4])
+    rows = facts_v3.to_rows(obj)
+    assert rows[1]["cashier_counting_cash"] == "yes" and rows[0]["cashier_counting_cash"] == "no"
+    assert rows[0]["service_in_progress"] == "yes" and rows[0]["collector_present"] == "unknown"
+    assert not facts_v3.validate(dict(obj, counting_frames=[9]), [3, 4])
+    assert not facts_v3.validate(dict(obj, presence=obj["presence"][:1]), [3, 4])
+    assert "maxLength" not in json.dumps(facts_v3.schema([3, 4]))
+
+
+@needs_ffmpeg
+def test_v3_cash02_event_through_analyzer(video, tmp_path):
+    cfg3 = dataclasses.replace(load_model_config(ROOT / "configs/model.yaml"), prompt_version=facts_v3.PROMPT_VERSION,
+                               max_tokens=512)
+
+    def r(idx):
+        pres = [{"index": i, "cashier": "yes", "client": "yes" if i == 8 else "no", "collector": "no"} for i in idx]
+        return 200, json.dumps({"presence": pres, "counting_frames": [i for i in idx if 10 <= i <= 12],
+                                "bag_open_frames": [], "service_frames": [i for i in idx if i == 8]}), "stop"
+    res, _, _ = run(cfg3, r, video, tmp_path)
+    assert res.verdict == "violation" and [e.type_id for e in res.events] == [rules_v2.TYPE_CASH02]
+    assert res.events[0].timecode_sec == 10.0

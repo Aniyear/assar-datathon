@@ -17,7 +17,7 @@ from app.contracts import (SCHEMA_VERSION, AnalysisError, AnalysisResult, Analys
                            RuleCatalog, UnassessableVideoError, remaining_seconds, validate_analysis_for_video,
                            validate_analysis_rules)
 
-from . import conditions, facts_prompt, facts_v2, prompts, rules_v2
+from . import conditions, facts_prompt, facts_v2, facts_v3, prompts, rules_v2
 from .config import ModelConfig, load_model_config, load_rule_catalog
 from .video import Frame, probe, sample_frames, windows
 from .vlm import LlamaClient
@@ -85,8 +85,9 @@ class Analyzer:
                 raise AnalyzerNotReadyError(f"{facts_prompt.FACTS_PROMPT_VERSION} needs exactly one verified rule "
                                             f"with type_id {facts_prompt.SUPPORTED_TYPE_ID!r}")
             self.rules = {verified[0].type_id: verified[0]}
-        elif cfg.prompt_version == facts_v2.PROMPT_VERSION:
+        elif cfg.prompt_version in (facts_v2.PROMPT_VERSION, facts_v3.PROMPT_VERSION):
             self.mode = "facts_v2"
+            self.facts_pm = facts_v2 if cfg.prompt_version == facts_v2.PROMPT_VERSION else facts_v3
             verified = [r for r in catalog.rules if r.status == "verified"]
             types = [r.type_id for r in verified]
             if not verified or len(set(types)) != len(types) or not set(types) <= set(facts_v2.SUPPORTED_TYPE_IDS):
@@ -285,8 +286,8 @@ class Analyzer:
         by_index = {f.index: f for f in frames}
         timeline: list[rules_v2.Facts] = []
         for win in windows(frames, self.cfg.window_sec):
-            obj = self._ask(win, deadline_monotonic, pm=facts_v2)
-            for e in obj["frames"]:
+            obj = self._ask(win, deadline_monotonic, pm=self.facts_pm)
+            for e in self.facts_pm.to_rows(obj):
                 timeline.append(rules_v2.Facts(e["index"], by_index[e["index"]].pts_sec,
                                                {k: e[k] for k in rules_v2.FIELDS}))
         timings["inference"] = (time.monotonic() - t) * 1000
@@ -311,7 +312,7 @@ class Analyzer:
                 evidence=[LocalEvidence(timestamp_sec=f.pts_sec, local_jpeg_path=str(f.evidence_path.resolve()))
                           for f in ev]))
         unruled = sum(1 for c in cands if c.decision == "event" and c.type_id not in self.rules)
-        limitations = [f"coverage ({facts_v2.PROMPT_VERSION}): " + ", ".join(sorted(self.rules)),
+        limitations = [f"coverage ({self.cfg.prompt_version}): " + ", ".join(sorted(self.rules)),
                        f"sampling step {self.cfg.step_sec:g}s: shorter actions may be missed",
                        "facts are model judgements per frame; role and identity are not established",
                        f"{unknown}/{len(timeline)} frames with unknown cashier/client presence"]
