@@ -3,83 +3,21 @@
 Тестовый сервер существует только здесь и не подключается в runtime.
 """
 import json
-import re
 import shutil
 import subprocess
-import threading
 import time
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
 
 from app.contracts import (AnalysisTimeoutError, DecodeError, InvalidAnalysisResultError, ModelUnavailableError,
-                           RuleCatalog, UnassessableVideoError, validate_analysis_for_video, validate_analysis_rules)
+                           UnassessableVideoError, validate_analysis_for_video, validate_analysis_rules)
 from app.inference import Analyzer, AnalyzerNotReadyError, LlamaClient, load_model_config, load_rule_catalog
 from app.inference import analyzer as analyzer_mod
+from tests.inference.fakes import FakeLlama, catalog, ok, synthetic_rule
 
 ROOT = Path(__file__).resolve().parents[2]
 pytestmark = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not in PATH")
-
-
-def synthetic_rule(type_id="cash_bag_handover", status="verified", rule_id="SYNTH-01"):
-    return {"rule_id": rule_id, "type_id": type_id, "type_name_ru": "Синтетический тип (тест)",
-            "source_title": "Синтетический источник для тестов", "source_url": "https://example.invalid/synthetic",
-            "clause": None, "effective_version_checked_at": "2026-10-17" if status == "verified" else None,
-            "scope": "test only", "observable_condition": "synthetic", "required_context": [],
-            "counterexamples": [], "claim_template_ru": "Синтетический шаблон", "status": status}
-
-
-def catalog(*rules):
-    return RuleCatalog.model_validate({"schema_version": "0.1", "rules": list(rules)})
-
-
-class FakeLlama:
-    """responder(frame_indices: list[int]) -> (http_status, content: str, finish_reason) или ('sleep', sec)."""
-
-    def __init__(self, responder):
-        self.responder, self.calls = responder, 0
-        outer = self
-
-        class H(BaseHTTPRequestHandler):
-            def log_message(self, *a):
-                pass
-
-            def _send(self, code, obj):
-                data = json.dumps(obj).encode()
-                self.send_response(code)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
-
-            def do_GET(self):
-                self._send(200, {"status": "ok"}) if self.path == "/health" else self._send(404, {})
-
-            def do_POST(self):
-                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-                texts = [c["text"] for c in body["messages"][0]["content"] if c["type"] == "text"]
-                idx = [int(m.group(1)) for t in texts for m in [re.match(r"Frame (\d+), t=", t)] if m]
-                outer.calls += 1
-                r = outer.responder(idx)
-                if r[0] == "sleep":
-                    time.sleep(r[1])
-                    r = (200, json.dumps({"frames_assessable": True, "observations": []}), "stop")
-                code, content, finish = r
-                self._send(code, {"choices": [{"message": {"content": content}, "finish_reason": finish}],
-                                  "usage": {}})
-
-        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), H)
-        self.url = f"http://127.0.0.1:{self.httpd.server_address[1]}"
-        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
-
-    def close(self):
-        self.httpd.shutdown()
-        self.httpd.server_close()
-
-
-def ok(obs=(), assessable=True):
-    return 200, json.dumps({"frames_assessable": assessable, "observations": list(obs)}), "stop"
 
 
 @pytest.fixture(scope="module")
@@ -173,6 +111,32 @@ def test_no_verified_category_gives_no_violation_with_limitation(cfg, video, tmp
     responder = lambda idx: ok([{"category": "other_notable_action", "frame_indices": idx[:1], "description": "x"}])
     res, _, _ = run(cfg, catalog(synthetic_rule()), responder, video, tmp_path)
     assert res.verdict == "no_violation" and res.events == []
+    assert any("generic observations" in x for x in res.limitations)
+
+
+def test_unsupported_candidate_category_is_not_no_violation(cfg, video, tmp_path):
+    responder = lambda idx: ok([{"category": "cash_bag_opened", "frame_indices": idx[:1], "description": "x"}])
+    with pytest.raises(InvalidAnalysisResultError):
+        run(cfg, catalog(synthetic_rule()), responder, video, tmp_path)
+
+
+def test_partly_unassessable_without_events_is_not_no_violation(cfg, video, tmp_path):
+    responder = lambda idx: ok(assessable=idx[0] != 10)
+    with pytest.raises(UnassessableVideoError):
+        run(cfg, catalog(synthetic_rule()), responder, video, tmp_path)
+
+
+def test_partly_unassessable_with_verified_event_is_violation(cfg, video, tmp_path):
+    def responder(idx):
+        if idx[0] == 10:
+            return ok(assessable=False)
+        if idx[0] == 0:
+            return ok([{"category": "cash_bag_handover", "frame_indices": idx[:2], "description": "x"},
+                       {"category": "cash_bag_opened", "frame_indices": idx[3:4], "description": "y"}])
+        return ok()
+    res, _, _ = run(cfg, catalog(synthetic_rule()), responder, video, tmp_path)
+    assert res.verdict == "violation" and len(res.events) == 1
+    assert any("unassessable" in x for x in res.limitations)
     assert any("without a verified rule" in x for x in res.limitations)
 
 

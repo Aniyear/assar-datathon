@@ -3,8 +3,8 @@
 Qwen3-VL-2B-Instruct (GGUF) исполняется локальным `llama-server` из llama.cpp. Сервер слушает только
 `127.0.0.1` и запускается с `--offline`. FFmpeg декодирует видео; время каждого кадра — фактический PTS
 из фильтра `showinfo`, rotation metadata применяется autorotate FFmpeg. Обучение не выполнялось.
-`analyze_video` реализован по общему контракту 0.1 (`app/contracts.py`, bootstrap `5c748f9`), см. раздел
-«Интеграция с backend». **Production заблокирован**, пока в `app/rules/catalog.json` нет verified-правил.
+`analyze_video` реализован по общему контракту 0.1 (`app/contracts.py`, bootstrap `5c748f9`) и подключается
+к backend через `app.inference.service`, см. разделы «Интеграция с backend» и «Условия вердикта». **Production заблокирован**, пока в `app/rules/catalog.json` нет verified-правил.
 
 ## Зафиксированные версии
 
@@ -125,60 +125,56 @@ print(f"identical {sum(x == y for x, y in zip(a, b))}/{len(a)}")
 
 ## Интеграция с backend (worker и supervisor)
 
-Импорты:
+Backend (`codex/backend` @ `1a3bda0`, `app/jobs/ML_INTERFACE.md`) импортирует модуль
+`app.inference.service` — тонкий адаптер над `config.py`, `vlm.py` и `analyzer.py`:
 
 ```python
-from app.inference import (Analyzer, AnalyzerNotReadyError, LlamaClient, LlamaServer, ModelConfigError,
-                           analyze_video, build_command, init_worker, load_model_config,
-                           load_rule_catalog, verify_runtime_files)
-from app.contracts import AnalysisError, VideoAnalyzer, remaining_seconds
+from app.inference.service import check_runtime, create_analyzer, server_command
 ```
 
-**Supervisor** (владелец процессов, один раз при старте сервиса):
+| Функция | Где вызывается | Что делает | Ошибка |
+|---|---|---|---|
+| `check_runtime(model_cfg, repo_root)` | API, один раз при старте | Размер и SHA256 весов и mmproj, наличие и SHA256 `llama-server.exe` (`runtime.server_sha256_reported`); проверка закреплённых флагов. Без процессов и сети | `ModelUnavailableError` |
+| `server_command(model_cfg, repo_root, port)` | supervisor перед `Popen` | Чистая функция: argv с `--host 127.0.0.1 --port <port> -c 8192 -ngl 99 -np 1 --no-webui --offline --jinja --image-max-tokens 256` и абсолютными путями от `repo_root` | `ModelUnavailableError` (порт вне 1–65535, config без `--offline`/`-np 1`/…) |
+| `create_analyzer(endpoint, model_cfg, catalog, repo_root)` | worker, один раз после health | Клиент `endpoint` (только `http://127.0.0.1:<port>`, без proxy и редиректов), `Analyzer`, проверка `/health` ≤ 2 с. Возвращает `analyze_video` | `AnalyzerNotReadyError` (нет verified-правил, type_id вне категорий промпта, версия промпта), `ModelUnavailableError` |
 
-1. `cfg = load_model_config(Path("configs/model.yaml"))`, затем `verify_runtime_files(cfg)`
-   (размер + SHA256 весов, ~2,3 ГБ чтения) → `ModelConfigError` при несовпадении.
-2. `server = LlamaServer(cfg.server, log_path)`; `proc = server.spawn()` возвращает `Popen` сразу,
-   до health. Supervisor регистрирует handle/PID (на Windows — в своём Job Object kill-on-close),
-   затем вызывает `server.wait_healthy(settings.model_start_timeout_sec)`. Порт `cfg.server.port=0`
-   → свободный порт выбирается при создании `LlamaServer`; адрес — `server.url`.
-   Для внешнего spawn есть `build_command(cfg.server, port)`.
-3. Остановка: `server.stop(grace=settings.model_stop_grace_sec)` (terminate → kill, ожидания ограничены).
-   При зависании/timeout job останавливать **и worker, и этот сервер**; `stop()` не заменяет Job Object.
+Процессы модели запускает и останавливает только supervisor; адаптер не создаёт второй сервер.
+`ffmpeg`/`ffprobe` запускаются обычным `subprocess.run` (`CREATE_NO_WINDOW`, без breakaway/detached)
+и наследуют Job Object worker'а. Socket timeout запроса к модели ≤ остатка deadline, но генерацию на GPU
+не прерывает — это делает watchdog supervisor'а.
 
-**Worker** (отдельный процесс; один раз при старте, затем последовательные job):
+**Ошибки `analyze_video`** — только наследники `AnalysisError`, сообщения без путей и ответов модели:
 
-```python
-init_worker(model_config_path=Path("configs/model.yaml"),
-            rules_catalog_path=Path("app/rules/catalog.json"),
-            server_url=server.url,                       # только http://127.0.0.1:<port>
-            call_timeout_sec=settings.model_call_timeout_sec)
-result = analyze_video(video_path.resolve(), job_dir.resolve(), deadline_monotonic)
-```
+| Ситуация | Тип | Supervisor |
+|---|---|---|
+| Путь видео не абсолютный / файла нет, ffprobe/ffmpeg не прочитали, PTS вне длительности | `DecodeError` | мягкий: сервер переиспользуется |
+| Все окна непригодны; часть окон непригодна и verified-событий нет | `UnassessableVideoError` | мягкий |
+| Ответ обрезан / не JSON / неверный индекс кадра; наблюдения кандидатных категорий без verified-правила при отсутствии событий; результат не прошёл общие валидаторы | `InvalidAnalysisResultError` | мягкий |
+| HTTP-ошибка, недоступность llama-server | `ModelUnavailableError` | перезапуск |
+| Исчерпан deadline, timeout ffprobe/ffmpeg/запроса | `AnalysisTimeoutError` | перезапуск |
+| `job_dir` не абсолютный/не существует, deadline не конечное число, любой непредвиденный сбой | базовый `AnalysisError` (причина в `__cause__`) | перезапуск |
 
-- `init_worker` бросает `AnalyzerNotReadyError`, если в каталоге нет verified-правил, type_id правила не
-  совпадает с категорией промпта, `prompt_version` config ≠ код, или сервер не отвечает на `/health`;
-  `ModelConfigError` — при повреждённом config/каталоге. Это отказ старта сервиса, а не job failed.
-- `analyze_video` не запускает, не скачивает и не останавливает сервер; кадры пишет в `job_dir/frames/`
-  и возвращает абсолютные пути к этим JPEG. Сбой — наследник `AnalysisError`
-  (`DecodeError`, `ModelUnavailableError`, `AnalysisTimeoutError`, `UnassessableVideoError`,
-  `InvalidAnalysisResultError`); неверные аргументы (относительные пути, нет `job_dir`) — `ValueError`.
-  И то и другое → job `failed`.
-- Перед возвратом адаптер сам вызывает `validate_analysis_for_video` и `validate_analysis_rules`;
-  backend всё равно повторяет общие проверки перед сериализацией.
-- `remaining_seconds(deadline)` проверяется до/после probe, decode, каждого запроса и валидации; timeouts
-  ffprobe (≤ 30 с), ffmpeg (≤ 120 с) и запроса (≤ `call_timeout_sec`) ограничены остатком. Socket timeout
-  не прерывает генерацию на GPU — нужен watchdog supervisor'а.
-- Клиент игнорирует `HTTP(S)_PROXY` и запрещает редиректы.
+Для `job_dir` и deadline подходящего наследника в контракте нет — это ошибки вызывающей стороны;
+базовый `AnalysisError` означает жёсткий сбой (вопрос интегратору).
 
-**Сопоставление с каталогом (соглашение адаптера).** Событие создаётся, только если категория наблюдения
-модели равна `type_id` правила со `status: "verified"`. Допустимые `type_id` — `prompts.CATEGORIES`
-промпта `obs-v0.1`. Наблюдения других категорий не дают событий и учитываются в `limitations`.
-Нет наблюдений verified-категорий на пригодном видео → `no_violation`. Все окна помечены моделью
-как непригодные → `UnassessableVideoError`. Смежные наблюдения одной категории (разрыв ≤ 1,5 × шаг)
-объединяются; `timecode_sec` = PTS первого кадра события, до трёх кадров-доказательств
-(первый, средний, последний). Повторного запроса при невалидном JSON нет: decoding детерминирован
-(temperature 0, top_k 1), повтор дал бы тот же ответ.
+## Условия вердикта
+
+Модель по каждому окну возвращает `frames_assessable` и наблюдения с категорией из `prompts.CATEGORIES`.
+Совпадение категории с `type_id` verified-правила — **единственная** программная связь с правилом:
+`required_context` и `counterexamples` каталога — текст, машинно не проверяются; это отражено в
+`limitations` каждого результата и должно учитываться при переводе правила в `verified`.
+
+1. Любое окно с невалидным/обрезанным ответом → `InvalidAnalysisResultError` (job failed).
+2. Все окна `frames_assessable=false` → `UnassessableVideoError`.
+3. Есть наблюдение категории verified-правила → событие(я) → **`violation`** (непригодные окна и
+   наблюдения без правила остаются в `limitations`).
+4. Событий нет:
+   - есть наблюдения кандидатных категорий без verified-правила → `InvalidAnalysisResultError`;
+   - есть непригодные окна → `UnassessableVideoError`;
+   - иначе (все окна пригодны, наблюдений нет либо только `other_notable_action`) → **`no_violation`**.
+
+Пустой каталог блокирует старт (`AnalyzerNotReadyError`), а не выдаёт `no_violation`. Порогов на число
+кадров/длительность события нет: их нужно задавать вместе с verified-правилом, а не подбирать.
 
 ## Измерения: RTX 3050 Laptop 4 ГБ, 17.10.2026
 
