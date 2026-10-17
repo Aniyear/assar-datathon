@@ -17,7 +17,7 @@ from app.contracts import (SCHEMA_VERSION, AnalysisError, AnalysisResult, Analys
                            RuleCatalog, UnassessableVideoError, remaining_seconds, validate_analysis_for_video,
                            validate_analysis_rules)
 
-from . import conditions, facts_prompt, facts_v2, facts_v3, facts_v4, prompts, rules_v2, rules_v4
+from . import conditions, facts_prompt, facts_v2, facts_v3, facts_v4, facts_v5, prompts, rules_v2, rules_v4
 from .config import ModelConfig, load_model_config, load_rule_catalog
 from .video import Frame, probe, sample_frames, windows
 from .vlm import LlamaClient
@@ -85,11 +85,12 @@ class Analyzer:
                 raise AnalyzerNotReadyError(f"{facts_prompt.FACTS_PROMPT_VERSION} needs exactly one verified rule "
                                             f"with type_id {facts_prompt.SUPPORTED_TYPE_ID!r}")
             self.rules = {verified[0].type_id: verified[0]}
-        elif cfg.prompt_version in (facts_v2.PROMPT_VERSION, facts_v3.PROMPT_VERSION, facts_v4.PROMPT_VERSION):
+        elif cfg.prompt_version in (facts_v2.PROMPT_VERSION, facts_v3.PROMPT_VERSION, facts_v4.PROMPT_VERSION,
+                                    facts_v5.PROMPT_VERSION):
             self.mode = "facts_v2"
             self.facts_pm = {facts_v2.PROMPT_VERSION: facts_v2, facts_v3.PROMPT_VERSION: facts_v3,
-                             facts_v4.PROMPT_VERSION: facts_v4}[cfg.prompt_version]
-            self.rules_mod = rules_v4 if self.facts_pm is facts_v4 else rules_v2
+                             facts_v4.PROMPT_VERSION: facts_v4, facts_v5.PROMPT_VERSION: facts_v5}[cfg.prompt_version]
+            self.rules_mod = rules_v4 if self.facts_pm in (facts_v4, facts_v5) else rules_v2
             verified = [r for r in catalog.rules if r.status == "verified"]
             types = [r.type_id for r in verified]
             supported = self.facts_pm.SUPPORTED_TYPE_IDS
@@ -290,8 +291,12 @@ class Analyzer:
         rm = self.rules_mod
         timeline: list[rules_v2.Facts] = []
         for win in windows(frames, self.cfg.window_sec):
-            obj = self._ask(win, deadline_monotonic, pm=self.facts_pm)
-            for e in self.facts_pm.to_rows(obj):
+            if self.facts_pm is facts_v5:  # специалисты: отдельный короткий запрос на каждую задачу
+                rows = facts_v5.merge([self._ask(win, deadline_monotonic, pm=p) for p in facts_v5.PASSES],
+                                      [f.index for f in win])
+            else:
+                rows = self.facts_pm.to_rows(self._ask(win, deadline_monotonic, pm=self.facts_pm))
+            for e in rows:
                 timeline.append(rules_v2.Facts(e["index"], by_index[e["index"]].pts_sec,
                                                {k: e[k] for k in rm.FIELDS}))
         timings["inference"] = (time.monotonic() - t) * 1000

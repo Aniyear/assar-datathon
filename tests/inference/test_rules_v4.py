@@ -126,3 +126,43 @@ def test_v4_access_verification(video, tmp_path, answers, expect):
     assert res.verdict == expect
     c = a.last_trace["candidates"][0]
     assert c["checks"]["outsider_verified"]["status"] == ("confirmed" if expect == "violation" else "refuted")
+
+
+
+# --- cash-specialists-v5: отдельный запрос на каждого специалиста --------------------------------------
+from app.inference import facts_v5  # noqa: E402
+
+
+@needs_ffmpeg
+def test_v5_specialists_merge_to_safe01(video, tmp_path):
+    cfg = dataclasses.replace(load_model_config(ROOT / "configs/model.yaml"), prompt_version=facts_v5.PROMPT_VERSION,
+                              max_tokens=500)
+    cat = catalog(*[synthetic_rule(type_id=t, rule_id=f"S{i}") for i, t in enumerate(rules_v4.SUPPORTED_TYPES)])
+    calls = []
+
+    class H:  # ответ зависит от того, какой специалист спрашивает (по набору ключей схемы не видно — по порядку)
+        n = 0
+
+    def r(idx):
+        k = H.n % 4
+        H.n += 1
+        calls.append(k)
+        if k == 0:
+            body = {"frames": [{"index": i, "cashier": "no" if i >= 20 else "yes", "client": "no"} for i in idx]}
+        elif k == 1:
+            body = {"frames": [{"index": i, "outsider": "no"} for i in idx]}
+        elif k == 2:
+            body = {"frames": [{"index": i, "safe_open": "yes" if i >= 19 else "no", "keys_left": "no"} for i in idx]}
+        else:
+            body = {"counting_frames": [], "service_frames": []}
+        return 200, json.dumps(body), "stop"
+    srv = FakeLlama(r)
+    try:
+        job = tmp_path / "job"
+        job.mkdir()
+        res = Analyzer(cfg, cat, LlamaClient(srv.url), call_timeout_sec=10).analyze_video(video, job,
+                                                                                          time.monotonic() + 60)
+    finally:
+        srv.close()
+    assert len(calls) % 4 == 0 and len(calls) >= 12  # 4 специалиста × ≥3 окна
+    assert res.verdict == "violation" and [e.type_id for e in res.events] == [rules_v4.TYPE_SAFE01]
