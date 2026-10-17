@@ -170,10 +170,22 @@ def start(args, state_dir: Path) -> int:
         show_report(report)
         if args.tunnel:
             validate_tunnel(args.tunnel)
+        ngrok_binary = getattr(args, "ngrok", None)
+        ngrok_config = state_dir / "private/ngrok.json"
+        if ngrok_binary:
+            from scripts import ngrok_support
+            private_directory(ngrok_config.parent)
+            if ngrok_support.import_official_auth(ngrok_config):
+                print("Авторизация ngrok прочитана из стандартной конфигурации; токен остаётся локально.", flush=True)
+            if not ngrok_config.is_file():
+                print("Сначала выполните официальный ngrok config add-authtoken в своём PowerShell. Токен в чат не отправляйте.", flush=True)
+                return 2
+            ngrok_support.validate(ngrok_binary, ngrok_config)
         key = load_or_create_key(state_dir)
         run_id = uuid.uuid4().hex
         state = {"run_id": run_id, "pid": os.getpid(), "mode": args.mode, "phase": "starting",
                  "url": f"http://127.0.0.1:{args.port}", "public_url": None, "tunnel_pid": None,
+                 "tunnel_provider": "ngrok" if ngrok_binary else "cloudflare" if args.tunnel else None,
                  "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()}
         state_path = state_dir / "state.json"
         stop_path = state_dir / f"stop-{run_id}.json"
@@ -195,10 +207,11 @@ def start(args, state_dir: Path) -> int:
         server = uvicorn.Server(config)
         finished = threading.Event()
         tunnel_job, tunnel, tunnel_log = ProcessJob(), None, None
+        ngrok_facts, ngrok_reader = {}, None
         errors = []
 
         def monitor():
-            nonlocal tunnel, tunnel_log
+            nonlocal tunnel, tunnel_log, ngrok_reader
             try:
                 while not finished.wait(0.2):
                     if stop_path.exists():
@@ -206,7 +219,17 @@ def start(args, state_dir: Path) -> int:
                     if server.started and state["phase"] == "starting":
                         state["phase"] = "running"
                         print(f"{args.mode}: {state['url']}\nКлюч только в {key_file(state_dir)}\nОстановка: scripts/assar.ps1 stop --mode {args.mode}", flush=True)
-                        if args.tunnel:
+                        if ngrok_binary:
+                            # Ignore unrelated account/settings environment; private config is explicit.
+                            env = {k: v for k, v in os.environ.items() if not k.upper().startswith("NGROK_")}
+                            tunnel = spawn_in_job(ngrok_support.command(ngrok_binary, ngrok_config, state["url"]),
+                                                  tunnel_job, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+                            ngrok_reader = threading.Thread(target=ngrok_support.collect_output,
+                                                           args=(tunnel.stdout, ngrok_facts), daemon=True)
+                            ngrok_reader.start()
+                            state["tunnel_pid"] = tunnel.pid
+                            state["tunnel_started_at"] = time.time()
+                        elif args.tunnel:
                             log_path = state_dir / f"tunnel-{run_id}.log"
                             tunnel_log = log_path.open("w", encoding="utf-8")
                             tunnel = spawn_in_job([str(args.tunnel), "tunnel", "--no-autoupdate", "--protocol", "http2",
@@ -216,12 +239,19 @@ def start(args, state_dir: Path) -> int:
                             state["tunnel_started_at"] = time.time()
                     if tunnel:
                         if tunnel.poll() is not None:
+                            if ngrok_reader:
+                                ngrok_reader.join(timeout=1)
+                            state["tunnel_error_codes"] = ngrok_facts.get("error_codes", [])
                             raise RuntimeError("test tunnel exited")
                         if not state["public_url"]:
-                            text = log_path.read_text(encoding="utf-8", errors="replace")
-                            match = re.search(r"https://[a-z0-9-]+\.trycloudflare\.com", text)
-                            if match:
-                                state["public_url"] = match.group(0)
+                            if ngrok_binary:
+                                public_url = ngrok_facts.get("public_url")
+                            else:
+                                text = log_path.read_text(encoding="utf-8", errors="replace")
+                                match = re.search(r"https://[a-z0-9-]+\.trycloudflare\.com", text)
+                                public_url = match.group(0) if match else None
+                            if public_url:
+                                state["public_url"] = public_url
                                 print(f"ТЕСТОВЫЙ HTTPS: {state['public_url']} (без inference/загрузки)", flush=True)
                             elif time.time() - state["tunnel_started_at"] > 60:
                                 raise RuntimeError("no tunnel URL after 60 seconds")
@@ -249,6 +279,9 @@ def start(args, state_dir: Path) -> int:
                         return False
                 cleanup_ok = stop_tree(tunnel_job, tunnel.terminate, wait, 5)
             tunnel_job.close()
+            if ngrok_reader:
+                ngrok_reader.join(timeout=5)
+                state["tunnel_error_codes"] = ngrok_facts.get("error_codes", [])
             if tunnel_log:
                 tunnel_log.close()
             state.update(phase="stopped", heartbeat=time.time(), tunnel_cleanup_confirmed=cleanup_ok,
@@ -298,15 +331,19 @@ def main(argv=None) -> int:
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--runtime-root", type=Path, default=ROOT)
     parser.add_argument("--model-config", type=Path, default=ROOT / "configs/model.yaml")
-    parser.add_argument("--tunnel", type=Path, help="Pinned cloudflared binary; network-test ONLY")
+    tunnels = parser.add_mutually_exclusive_group()
+    tunnels.add_argument("--tunnel", type=Path, help="Pinned cloudflared binary; network-test ONLY")
+    tunnels.add_argument("--ngrok", type=Path, help="Pinned ngrok binary; network-test ONLY")
     args = parser.parse_args(argv)
-    if args.tunnel and args.mode != "network-test":
-        parser.error("--tunnel разрешён только для network-test; публикация production — отдельный шаг")
+    if (args.tunnel or args.ngrok) and args.mode != "network-test":
+        parser.error("--tunnel/--ngrok разрешены только для network-test; публикация production — отдельный шаг")
     if not 1 <= args.port <= 65535:
         parser.error("--port must be between 1 and 65535")
     args.runtime_root, args.model_config = args.runtime_root.resolve(), args.model_config.resolve()
     if args.tunnel:
         args.tunnel = args.tunnel.resolve()
+    if args.ngrok:
+        args.ngrok = args.ngrok.resolve()
     state_dir = ROOT / "outputs" / "service" / args.mode
     try:
         if args.action in ("stop", "status"):

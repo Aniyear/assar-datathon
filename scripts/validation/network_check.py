@@ -7,6 +7,7 @@ import urllib.error
 import urllib.request
 
 from scripts.service import ROOT, atomic_json, key_file
+from scripts.ngrok_support import valid_origin as ngrok_origin
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -18,11 +19,13 @@ def main() -> int:
     state_dir = ROOT / "outputs/service/network-test"
     state = json.loads((state_dir / "state.json").read_text(encoding="utf-8"))
     assert state["mode"] == "network-test" and state["phase"] == "running"
-    assert re.fullmatch(r"https://[a-z0-9-]+\.trycloudflare\.com", state["public_url"])
+    assert (re.fullmatch(r"https://[a-z0-9-]+\.trycloudflare\.com", state["public_url"])
+            or ngrok_origin(state["public_url"]))
     key = key_file(state_dir).read_text(encoding="utf-8").strip()
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
     receipt = {"mode": "network-test", "run_id": state["run_id"], "public_url": state["public_url"],
                "bank_data_used": False, "inference_tested": False,
+               "browser_warning_bypassed_in_automated_check": ngrok_origin(state["public_url"]),
                "independent_network_confirmed": False, "checks": []}
     for origin in (state["url"], state["public_url"]):
         cases = [("page", "/", None, None, 200), ("health", "/health", None, None, 200),
@@ -34,6 +37,8 @@ def main() -> int:
             started = time.monotonic()
             check = {"origin": origin, "name": name, "expected": expected, "pass": False}
             req = urllib.request.Request(origin + path, data=body)
+            if ngrok_origin(origin):
+                req.add_header("ngrok-skip-browser-warning", "network-test")
             if credential:
                 req.add_header("X-API-Key", credential)
             try:
