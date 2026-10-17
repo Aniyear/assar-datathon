@@ -33,6 +33,7 @@ class ModelConfig:
     mmproj_quantization: str
     runtime_tag: str
     status: str
+    server_sha256: str | None
     server: ServerConfig
     weights: FileSpec
     mmproj: FileSpec
@@ -62,9 +63,16 @@ def load_model_config(path: Path, root: Path | None = None) -> ModelConfig:
     try:
         d = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
-        raise ModelConfigError(f"cannot read model config {path}") from e
-    root = Path(root) if root is not None else Path(path).resolve().parent.parent
+        raise ModelConfigError("cannot read model config") from e
+    return parse_model_config(d, Path(root) if root is not None else Path(path).resolve().parent.parent)
+
+
+def parse_model_config(d: dict, root: Path) -> ModelConfig:
+    """configs/model.yaml, уже прочитанный stdlib json; относительные пути — от root."""
+    root = Path(root)
     try:
+        if not isinstance(d, dict):
+            raise ModelConfigError("model config must be an object")
         if d["backend"] != "llama-server" or d.get("external_inference") is not False:
             raise ModelConfigError("only local llama-server backend is supported")
         if d["server"]["host"] != "127.0.0.1":
@@ -82,6 +90,7 @@ def load_model_config(path: Path, root: Path | None = None) -> ModelConfig:
         return ModelConfig(
             model_id=d["model_id"], model_revision=d["model_revision"], quantization=d["weights"]["quantization"],
             mmproj_quantization=d["mmproj"]["quantization"], runtime_tag=rt["tag"], status=d["status"],
+            server_sha256=rt.get("server_sha256_reported"),
             server=server, weights=weights, mmproj=mmproj,
             max_tokens=int(g["max_tokens"]), temperature=float(g["temperature"]), top_k=int(g["top_k"]),
             seed=int(g["seed"]), cache_prompt=bool(g["cache_prompt"]), prompt_version=g["prompt_version"],
@@ -97,20 +106,29 @@ def load_rule_catalog(path: Path) -> RuleCatalog:
     try:
         return RuleCatalog.model_validate_json(Path(path).read_text(encoding="utf-8"))
     except OSError as e:
-        raise ModelConfigError(f"cannot read rule catalog {path}") from e
+        raise ModelConfigError("cannot read rule catalog") from e
+
+
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 22), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def verify_runtime_files(cfg: ModelConfig, full_hash: bool = True) -> None:
-    """Проверка локальных весов перед стартом сервиса (supervisor). full_hash читает ~2,3 ГБ."""
+    """Проверка локальных файлов перед стартом сервиса. full_hash читает ~2,3 ГБ весов.
+
+    Хеш llama-server.exe проверяется, если он есть в config (runtime.server_sha256_reported).
+    CUDA DLL рядом с сервером config пока не перечисляет — их наличие/хеш здесь не проверяются.
+    """
     for name, spec in (("weights", cfg.weights), ("mmproj", cfg.mmproj)):
         if not spec.path.is_file() or spec.path.stat().st_size != spec.bytes:
             raise ModelConfigError(f"{name} file missing or size mismatch")
-        if full_hash:
-            h = hashlib.sha256()
-            with open(spec.path, "rb") as f:
-                for chunk in iter(lambda: f.read(1 << 22), b""):
-                    h.update(chunk)
-            if h.hexdigest() != spec.sha256:
-                raise ModelConfigError(f"{name} SHA256 mismatch")
+        if full_hash and _sha256(spec.path) != spec.sha256:
+            raise ModelConfigError(f"{name} SHA256 mismatch")
     if not cfg.server.server_bin.is_file():
         raise ModelConfigError("llama-server binary missing")
+    if full_hash and cfg.server_sha256 and _sha256(cfg.server.server_bin) != cfg.server_sha256:
+        raise ModelConfigError("llama-server SHA256 mismatch")

@@ -23,6 +23,8 @@ from .video import Frame, probe, sample_frames, windows
 from .vlm import LlamaClient
 
 PROBE_TIMEOUT_SEC = 30.0
+# Категории промпта, не соответствующие ни одному кандидату нарушения (см. prompts.CATEGORIES).
+GENERIC_CATEGORIES = frozenset({"other_notable_action"})
 DECODE_TIMEOUT_SEC = 120.0
 
 
@@ -124,14 +126,16 @@ class Analyzer:
 
     def analyze_video(self, video_path: Path, job_dir: Path, deadline_monotonic: float) -> AnalysisResult:
         t_start = time.monotonic()
-        remaining_seconds(deadline_monotonic)
+        try:
+            remaining_seconds(deadline_monotonic)
+        except ValueError as e:  # не конечное/не число: ошибка вызывающей стороны, отдельного типа нет
+            raise AnalysisError("invalid deadline argument") from e
         video_path, job_dir = Path(video_path), Path(job_dir)
-        if not video_path.is_absolute() or not job_dir.is_absolute():
-            raise ValueError("video_path and job_dir must be absolute")
-        if not video_path.is_file():
-            raise DecodeError("input video not found")
-        if not job_dir.is_dir():
-            raise ValueError("job_dir must be an existing directory")
+        if not video_path.is_absolute() or not video_path.is_file():
+            raise DecodeError("input video path is not an absolute existing file")
+        if not job_dir.is_absolute() or not job_dir.is_dir():
+            # Нет подходящего наследника: каталог job создаёт backend. Базовый AnalysisError → жёсткий сбой.
+            raise AnalysisError("job_dir is not an absolute existing directory")
         timings: dict[str, float] = {}
 
         t = time.monotonic()
@@ -150,7 +154,8 @@ class Analyzer:
         wins = windows(frames, self.cfg.window_sec)
         by_index = {f.index: f for f in frames}
         observations: list[_Obs] = []
-        unassessable = ignored = 0
+        unassessable = generic = 0
+        unsupported = 0  # кандидатные категории без verified-правила
         for win in wins:
             obj = self._ask(win, deadline_monotonic)
             if not obj["frames_assessable"]:
@@ -158,7 +163,10 @@ class Analyzer:
                 continue
             for o in obj["observations"]:
                 if o["category"] not in self.rules:
-                    ignored += 1
+                    if o["category"] in GENERIC_CATEGORIES:
+                        generic += 1
+                    else:
+                        unsupported += 1
                     continue
                 fr = sorted({by_index[i] for i in o["frame_indices"]}, key=lambda f: f.pts_sec)
                 fact = " ".join(o["description"].split())
@@ -166,6 +174,12 @@ class Analyzer:
         timings["inference"] = (time.monotonic() - t) * 1000
         if unassessable == len(wins):
             raise UnassessableVideoError("all windows reported as visually unassessable")
+        if not observations:
+            # no_violation только при полном покрытии и без сигналов, которые нечем проверить.
+            if unsupported:
+                raise InvalidAnalysisResultError("observations in candidate categories without a verified rule")
+            if unassessable:
+                raise UnassessableVideoError("part of the video is unassessable and no verified event was found")
 
         t = time.monotonic()
         events = []
@@ -181,11 +195,16 @@ class Analyzer:
                 evidence=[LocalEvidence(timestamp_sec=f.pts_sec, local_jpeg_path=str(f.evidence_path.resolve()))
                           for f in _pick_evidence(o.frames)]))
         limitations = [f"sampling step {self.cfg.step_sec:g}s, window {self.cfg.window_sec:g}s: "
-                       "short actions between sampled frames may be missed"]
+                       "short actions between sampled frames may be missed",
+                       "events are model category matches to verified type_id; rule required_context and "
+                       "counterexamples are not machine-checked"]
         if unassessable:
             limitations.append(f"{unassessable}/{len(wins)} windows reported visually unassessable")
-        if ignored:
-            limitations.append(f"{ignored} observations in categories without a verified rule were not reported")
+        if unsupported:
+            limitations.append(f"{unsupported} observations in candidate categories without a verified rule "
+                               "were not reported")
+        if generic:
+            limitations.append(f"{generic} generic observations (no rule category) were not reported")
         timings["postprocess"] = (time.monotonic() - t) * 1000
         timings["total"] = (time.monotonic() - t_start) * 1000
         try:
