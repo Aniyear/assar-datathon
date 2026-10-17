@@ -3,7 +3,8 @@
 Qwen3-VL-2B-Instruct (GGUF) исполняется локальным `llama-server` из llama.cpp. Сервер слушает только
 `127.0.0.1` и запускается с `--offline`. FFmpeg декодирует видео; время каждого кадра — фактический PTS
 из фильтра `showinfo`, rotation metadata применяется autorotate FFmpeg. Обучение не выполнялось.
-Интерфейс `analyze_video` будет подключён после общего контракта (`app/contracts.py`).
+`analyze_video` реализован по общему контракту 0.1 (`app/contracts.py`, bootstrap `5c748f9`), см. раздел
+«Интеграция с backend». **Production заблокирован**, пока в `app/rules/catalog.json` нет verified-правил.
 
 ## Зафиксированные версии
 
@@ -49,8 +50,8 @@ SHA256 скачиваемых файлов (их проверяет `fetch_runti
 
 | Слой | Что нужно | Как установлено |
 |---|---|---|
-| Python runtime (`app/inference/*.py`) | Python ≥ 3.10, только стандартная библиотека | Проверено разбором импортов всех модулей `app/inference/`: сторонних пакетов нет |
-| Тесты (`tests/inference/`) | `pytest` | Отдельная dev-зависимость; для inference не нужна |
+| Python runtime (`app/inference/*.py`) | CPython 3.11; сам код ML — стандартная библиотека, но он импортирует общий `app.contracts` → `pydantic`, `Pillow` | `.venv` из общего `requirements.lock` (см. `docs/OMAR_START.md`); новых зависимостей ML не добавляет |
+| Тесты (`tests/inference/`) | `pytest` (есть в `requirements.lock`) | Для inference не нужен |
 | Внешний runtime: FFmpeg/ffprobe | В `PATH` | Ставится отдельно; проверено с 7.1.1 essentials (gyan.dev) |
 | Внешний runtime: llama.cpp `b11669` | `llama-server.exe` и DLL | `fetch_runtime.py` → `models/llama.cpp-b11669/` |
 | Внешний runtime: CUDA runtime DLL | `cudart64_12.dll`, `cublas64_12.dll`, `cublasLt64_12.dll` | `fetch_runtime.py` из архива `cudart-…-cuda-12.4` (см. раздел о CUDA) |
@@ -82,10 +83,10 @@ python app/inference/fetch_runtime.py --dest models
 
 ## 2. Тесты (синтетическое видео, без данных датасета)
 
-Нужен `pytest` (только для тестов) и FFmpeg в `PATH`.
+Нужны `.venv` из `requirements.lock` (включает `pytest`) и FFmpeg в `PATH`.
 
 ```powershell
-python -m pytest -q tests/inference
+.\.venv\Scripts\python.exe -m pytest -q tests/inference
 ```
 
 ## 3. Benchmark одного видео — параметры рабочего запуска
@@ -95,7 +96,7 @@ $v = 'C:\path\to\video.mov'
 ```
 
 ```powershell
-python -m app.inference.bench_baseline --video $v --repeat 2 --quant Q8_0 --mmproj Q8_0 --ctx 8192 --image-max-tokens 256 --max-tokens 384 --step 1.0 --window 10 --model-height 0
+.\.venv\Scripts\python.exe -m app.inference.bench_baseline --video $v --repeat 2 --quant Q8_0 --mmproj Q8_0 --ctx 8192 --image-max-tokens 256 --max-tokens 384 --step 1.0 --window 10 --model-height 0
 ```
 
 Остальные параметры по умолчанию: `-ngl 99`, `-np 1`, `temperature 0`, `top_k 1`, `seed 0`, JSON-схема
@@ -121,6 +122,63 @@ a, b = hashes(sys.argv[1]), hashes(sys.argv[2])
 print(f"identical {sum(x == y for x, y in zip(a, b))}/{len(a)}")
 '@ | python - $run1 $run2
 ```
+
+## Интеграция с backend (worker и supervisor)
+
+Импорты:
+
+```python
+from app.inference import (Analyzer, AnalyzerNotReadyError, LlamaClient, LlamaServer, ModelConfigError,
+                           analyze_video, build_command, init_worker, load_model_config,
+                           load_rule_catalog, verify_runtime_files)
+from app.contracts import AnalysisError, VideoAnalyzer, remaining_seconds
+```
+
+**Supervisor** (владелец процессов, один раз при старте сервиса):
+
+1. `cfg = load_model_config(Path("configs/model.yaml"))`, затем `verify_runtime_files(cfg)`
+   (размер + SHA256 весов, ~2,3 ГБ чтения) → `ModelConfigError` при несовпадении.
+2. `server = LlamaServer(cfg.server, log_path)`; `proc = server.spawn()` возвращает `Popen` сразу,
+   до health. Supervisor регистрирует handle/PID (на Windows — в своём Job Object kill-on-close),
+   затем вызывает `server.wait_healthy(settings.model_start_timeout_sec)`. Порт `cfg.server.port=0`
+   → свободный порт выбирается при создании `LlamaServer`; адрес — `server.url`.
+   Для внешнего spawn есть `build_command(cfg.server, port)`.
+3. Остановка: `server.stop(grace=settings.model_stop_grace_sec)` (terminate → kill, ожидания ограничены).
+   При зависании/timeout job останавливать **и worker, и этот сервер**; `stop()` не заменяет Job Object.
+
+**Worker** (отдельный процесс; один раз при старте, затем последовательные job):
+
+```python
+init_worker(model_config_path=Path("configs/model.yaml"),
+            rules_catalog_path=Path("app/rules/catalog.json"),
+            server_url=server.url,                       # только http://127.0.0.1:<port>
+            call_timeout_sec=settings.model_call_timeout_sec)
+result = analyze_video(video_path.resolve(), job_dir.resolve(), deadline_monotonic)
+```
+
+- `init_worker` бросает `AnalyzerNotReadyError`, если в каталоге нет verified-правил, type_id правила не
+  совпадает с категорией промпта, `prompt_version` config ≠ код, или сервер не отвечает на `/health`;
+  `ModelConfigError` — при повреждённом config/каталоге. Это отказ старта сервиса, а не job failed.
+- `analyze_video` не запускает, не скачивает и не останавливает сервер; кадры пишет в `job_dir/frames/`
+  и возвращает абсолютные пути к этим JPEG. Сбой — наследник `AnalysisError`
+  (`DecodeError`, `ModelUnavailableError`, `AnalysisTimeoutError`, `UnassessableVideoError`,
+  `InvalidAnalysisResultError`); неверные аргументы (относительные пути, нет `job_dir`) — `ValueError`.
+  И то и другое → job `failed`.
+- Перед возвратом адаптер сам вызывает `validate_analysis_for_video` и `validate_analysis_rules`;
+  backend всё равно повторяет общие проверки перед сериализацией.
+- `remaining_seconds(deadline)` проверяется до/после probe, decode, каждого запроса и валидации; timeouts
+  ffprobe (≤ 30 с), ffmpeg (≤ 120 с) и запроса (≤ `call_timeout_sec`) ограничены остатком. Socket timeout
+  не прерывает генерацию на GPU — нужен watchdog supervisor'а.
+- Клиент игнорирует `HTTP(S)_PROXY` и запрещает редиректы.
+
+**Сопоставление с каталогом (соглашение адаптера).** Событие создаётся, только если категория наблюдения
+модели равна `type_id` правила со `status: "verified"`. Допустимые `type_id` — `prompts.CATEGORIES`
+промпта `obs-v0.1`. Наблюдения других категорий не дают событий и учитываются в `limitations`.
+Нет наблюдений verified-категорий на пригодном видео → `no_violation`. Все окна помечены моделью
+как непригодные → `UnassessableVideoError`. Смежные наблюдения одной категории (разрыв ≤ 1,5 × шаг)
+объединяются; `timecode_sec` = PTS первого кадра события, до трёх кадров-доказательств
+(первый, средний, последний). Повторного запроса при невалидном JSON нет: decoding детерминирован
+(temperature 0, top_k 1), повтор дал бы тот же ответ.
 
 ## Измерения: RTX 3050 Laptop 4 ГБ, 17.10.2026
 

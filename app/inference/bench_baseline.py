@@ -17,9 +17,11 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from app.contracts import AnalysisError
+
 from . import prompts
-from .video import DecodeError, probe, sample_frames, windows
-from .vlm import LlamaServer, ModelError, ServerConfig
+from .video import probe, sample_frames, windows
+from .vlm import LlamaServer, ServerConfig
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MODELS = ROOT / "models"
@@ -157,7 +159,7 @@ def main() -> int:
                 r["pass"] = "cold" if i == 0 else "warm"
                 runs.append(r)
         summary["runs"] = runs
-    except (DecodeError, ModelError) as e:
+    except AnalysisError as e:
         summary["error"] = f"{type(e).__name__}: {e}"
         rc = 1
     finally:

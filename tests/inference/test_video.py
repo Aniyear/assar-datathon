@@ -47,6 +47,33 @@ def test_rotation_metadata_applied(tmp_path):
     assert (w, h) == (426, 240)
 
 
+def test_nonzero_start_time_not_clamped(tmp_path):
+    base = _make(tmp_path / "b.mov", 4)
+    video = tmp_path / "off.mov"
+    subprocess.run(["ffmpeg", "-v", "error", "-i", str(base), "-c", "copy", "-output_ts_offset", "2", "-y",
+                    str(video)], check=True)
+    info = probe(video)
+    assert abs(info.start_time_sec - 2.0) < 1e-3
+    frames = sample_frames(video, tmp_path / "f", 1.0, info)
+    assert [round(f.pts_sec, 3) for f in frames] == [0.0, 1.0, 2.0, 3.0]
+
+
+def test_vfr_uses_actual_frame_times(tmp_path):
+    # 0–2 с при 30 FPS, далее кадры каждые 0,1 с
+    video = tmp_path / "vfr.mov"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc=size=160x284:rate=30:duration=4",
+                    "-vf", "setpts='if(lt(N,60),N/30,2+(N-60)/10)/TB'", "-fps_mode", "vfr",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-y", str(video)], check=True)
+    info = probe(video)
+    frames = sample_frames(video, tmp_path / "f", 0.25, info)
+    early = [f.pts_sec for f in frames if f.pts_sec < 2.0]
+    late = [f.pts_sec for f in frames if f.pts_sec >= 2.0]
+    assert all(abs(t * 30 - round(t * 30)) < 1e-3 for t in early)
+    assert all(abs((t - 2.0) * 10 - round((t - 2.0) * 10)) < 1e-3 for t in late)
+    assert all(b - a >= 0.25 - 1e-3 for a, b in zip([f.pts_sec for f in frames], [f.pts_sec for f in frames][1:]))
+    assert late and max(late) <= info.duration_sec
+
+
 def test_corrupt_video_raises(tmp_path):
     bad = tmp_path / "bad.mov"
     bad.write_bytes(b"\x00" * 1024)
