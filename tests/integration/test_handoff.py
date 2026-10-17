@@ -8,7 +8,6 @@ from __future__ import annotations
 import base64
 import io
 import json
-import subprocess
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,6 +22,7 @@ from app.inference.video import Frame, VideoInfo
 from app.jobs import media
 from app.jobs import runtime
 from app.jobs.serialize import to_done_job
+from app.jobs.procs import ProcessOwner
 from app.jobs.store import JobStore
 from app.jobs.supervisor import State, Supervisor, Ticket
 from app.settings import Settings
@@ -97,37 +97,49 @@ def test_ml_observation_and_source_survive_serialization_cleanup_and_store_reope
                 image.verify()
 
 
-@pytest.mark.xfail(strict=True, reason="B2: _recover overwrites STOPPED and starts a new runtime")
-def test_recovery_after_close_cannot_spawn(monkeypatch):
-    import threading
-    supervisor = object.__new__(Supervisor)
-    supervisor._lock = threading.Lock()
-    supervisor._state = State.STOPPED
+def test_recovery_after_close_cannot_spawn(tmp_path, monkeypatch):
+    from app.jobs.supervisor import RuntimeSpec
+    store = JobStore(tmp_path / "shutdown.sqlite3")
+    supervisor = Supervisor(Settings(api_key="synthetic-test-key"),
+                            RuntimeSpec("unused:factory", {}, catalog(synthetic_rule())), store)
     starts = []
-    monkeypatch.setattr(supervisor, "_stop_runtime", lambda: True)
     monkeypatch.setattr(supervisor, "_start_runtime", lambda: starts.append("spawn"))
-    supervisor._recover()  # A late failed _run can enter here after close().
-    supervisor._reopen()
-    assert starts == []
-    assert supervisor.state is State.STOPPED
+    try:
+        supervisor.close()  # Sets STOPPED and the new closing event; starts no processes.
+        supervisor._recover()  # A late failed _run can enter here after close().
+        supervisor._reopen()
+        assert starts == []
+        assert supervisor.state is State.STOPPED
+    finally:
+        supervisor._worker.job.close()
+        supervisor._server.job.close()
+        store.close()
 
 
-@pytest.mark.xfail(strict=True, reason="B3: probe_mov reuses the full timeout for both subprocesses")
 def test_admission_probe_spends_one_shared_budget(tmp_path, monkeypatch):
     now = [100.0]
     budgets = []
     monkeypatch.setattr(time, "monotonic", lambda: now[0])
 
-    def fake_run(cmd, timeout):
-        budgets.append(timeout)
-        now[0] += 4.0  # First probe consumes four seconds of a five-second total.
-        payload = {"format": {"format_name": "mov", "duration": "25"},
-                   "streams": [{"codec_name": "synthetic"}]}
-        return subprocess.CompletedProcess(cmd, 0, json.dumps(payload).encode(), b"")
+    class SyntheticProcess:
+        returncode = 0
 
-    monkeypatch.setattr(media, "_run", fake_run)
-    media.probe_mov(tmp_path / "synthetic.mov", timeout=5)
+        def communicate(self, timeout):
+            budgets.append(timeout)
+            # First stage consumes four seconds, second fits in the remainder.
+            now[0] += 4.0 if len(budgets) == 1 else 0.5
+            payload = {"format": {"format_name": "mov", "duration": "25"},
+                       "streams": [{"codec_name": "synthetic"}]}
+            return json.dumps(payload).encode(), None
+
+    monkeypatch.setattr(media, "spawn_in_job", lambda *a, **k: SyntheticProcess())
+    owner = ProcessOwner()
+    try:
+        media.probe_mov(tmp_path / "synthetic.mov", deadline_monotonic=105, owner=owner)
+    finally:
+        owner.close()
     assert len(budgets) == 2
+    assert budgets[0] == 5
     assert 0 < budgets[1] <= 1.0
 
 
@@ -154,7 +166,6 @@ def test_unsupported_candidate_observation_is_rejected(synthetic_analysis):
         synthetic_analysis([reply("SYNTHETIC candidate", category="cash_bag_opened"), reply(), reply()])
 
 
-@pytest.mark.xfail(strict=True, reason="B7: readiness accepts an arbitrary true key instead of required validations")
 def test_readiness_requires_named_evidence_flags(tmp_path, monkeypatch):
     cfg_path, cat_path = tmp_path / "model.json", tmp_path / "catalog.json"
     cfg = json.loads((ROOT / "configs/model.yaml").read_text(encoding="utf-8"))
