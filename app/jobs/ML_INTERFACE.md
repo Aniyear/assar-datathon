@@ -9,7 +9,7 @@ Base: `5c748f9`, контракт v0.1 (`app/contracts.py`). Контракт н
 def check_runtime(model_cfg: dict, repo_root: Path) -> None
 def server_command(model_cfg: dict, repo_root: Path, port: int) -> list[str]
 def create_analyzer(endpoint: str, model_cfg: dict, catalog: RuleCatalog,
-                    repo_root: Path) -> VideoAnalyzer
+                    repo_root: Path, call_timeout_sec: float = 120.0) -> VideoAnalyzer
 ```
 
 - `model_cfg` — `configs/model.yaml`, прочитанный stdlib `json`; `repo_root` — корень
@@ -25,6 +25,9 @@ def create_analyzer(endpoint: str, model_cfg: dict, catalog: RuleCatalog,
 - `create_analyzer` — в отдельном Python-worker (multiprocessing spawn), один раз
   на запуск worker, после health и после помещения worker в Job Object. `endpoint` = `http://127.0.0.1:<port>`.
   `catalog` содержит только `verified` правила. Возвращает `analyze_video`.
+  Backend всегда передаёт keyword `call_timeout_sec=float(settings.model_call_timeout_sec)`
+  (`ASSAR_MODEL_CALL_TIMEOUT_SEC`, по умолчанию 120): верхняя граница одного запроса
+  к модели, дополнительно ограниченная остатком deadline.
 
 ## Требования к `analyze_video(video_path, job_dir, deadline_monotonic)`
 
