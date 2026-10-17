@@ -188,7 +188,10 @@ def _cash02(tl: Sequence[Facts]) -> list[Candidate]:
             c, pre = Check("not_established", [], "starts at video start"), None
         checks["client_before_counting"] = c
         ev = _dedup([x for x in (pre, run[0], run[-1]) if x is not None])
-        out.append(Candidate(TYPE_CASH02, run, checks, ("counting", "client_absent_during_counting"), ev))
+        # Клиент перед пересчётом — обязательное условие: пересчёт кассиром в одиночку без клиента в контексте
+        # (dev: частое нормальное действие) не связан с приёмом наличных у клиента.
+        out.append(Candidate(TYPE_CASH02, run, checks,
+                             ("counting", "client_absent_during_counting", "client_before_counting"), ev))
     return out
 
 
@@ -206,7 +209,8 @@ def _collect02(tl: Sequence[Facts]) -> list[Candidate]:
             c, pre = Check("not_established", [], "starts at video start"), None
         checks["collector_before_opening"] = c
         ev = _dedup([x for x in (pre, run[0], run[-1]) if x is not None])
-        out.append(Candidate(TYPE_COLLECT02, run, checks, ("bag_opened", "collector_absent_during_opening"), ev))
+        out.append(Candidate(TYPE_COLLECT02, run, checks,
+                             ("bag_opened", "collector_absent_during_opening", "collector_before_opening"), ev))
     return out
 
 

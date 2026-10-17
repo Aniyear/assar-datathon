@@ -50,9 +50,14 @@ def test_cash02_counterexamples_and_unknown(spec, expect):
     assert one(evaluate(tl(f"{pad()} {spec} {pad()}")), rules_v2.TYPE_CASH02).decision == expect
 
 
-def test_cash02_context_cut_by_start_still_event():
-    c = one(evaluate(tl("ynnnyn ynnnyn ynnnyn ynnnnn")), rules_v2.TYPE_CASH02)
-    assert c.decision == "event" and not c.context_complete  # FAQ 16: видимое не пропускаем
+def test_cash02_without_client_in_context_is_not_event():
+    # dev: кассир один пересчитывает деньги — нормальное действие, не событие (даже при обрезанном контексте)
+    assert one(evaluate(tl("ynnnyn ynnnyn ynnnyn ynnnnn")), rules_v2.TYPE_CASH02).decision == "insufficient"
+
+
+def test_cash01_context_cut_by_start_still_event():
+    c = one(evaluate(tl("nynnnn nynnnn nynnnn yynynn yynnnn")), rules_v2.TYPE_CASH01)
+    assert c.decision == "event" and not c.context_complete  # FAQ 16: видимый уход не пропускаем
 
 
 def test_collect02_opened_after_collector_left_is_event_and_with_collector_excluded():
