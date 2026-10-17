@@ -20,7 +20,13 @@ import shutil
 import sys
 from pathlib import Path
 
-from ..conditions import CONDITION_RU
+from ..conditions import CONDITION_RU as _CR1
+from ..rules_v2 import CONDITION_RU as _CR2
+
+CONDITION_RU = {**_CR1, **_CR2}
+_TYPE_RU = {"cashier_leaves_during_service": "CASH-01 уход кассира",
+            "cash_counted_without_client": "CASH-02 пересчёт без клиента",
+            "collection_bag_opened_without_collector": "COLLECT-02 сумка без инкассатора"}
 from .review import _CSS
 
 _STATUS_RU = {"confirmed": "подтверждено", "refuted": "опровергнуто", "not_established": "не установлено"}
@@ -100,8 +106,8 @@ def build(run_dir: Path, seed: int = 0) -> Path:
     body, assets = [], {}
     for vid in vids:
         body.append(f'<h2>Видео {html.escape(vid)}</h2><div class="ref"><b>Эталон (ваш ответ по видео):</b> '
-                    'видно ли, что кассир покинул рабочее место, пока клиента обслуживали, и обслуживание '
-                    f'продолжилось после возвращения?<br>{_radios(f"ref|{vid}", (("yes", "Да"), ("no", "Нет"), ("unclear", "Неясно")))}'
+                    'есть ли на видео видимое нарушение кассовой дисциплины (любого типа)? '
+                    f'<br>{_radios(f"ref|{vid}", (("yes", "Да"), ("no", "Нет"), ("unclear", "Неясно")))}'
                     f'<br><textarea name="refnote|{html.escape(vid)}" placeholder="Примерное время, если да (локально)"></textarea></div>')
         for lab in order:
             r = next((x for x in variants[lab] if x["id"] == vid), None)
@@ -116,7 +122,9 @@ def build(run_dir: Path, seed: int = 0) -> Path:
                 parts.append('<p class="mut">Кандидатов (отсутствие кассира ≥ 3 кадров) нет.</p>')
             for ci, c in enumerate(cands):
                 cid = f"{vid}|{alias[lab]}|{ci}"
-                parts.append(f'<div class="obs"><span class="ev">Кандидат {ci + 1}: {c["absent"][0]:.1f}–'
+                tname = _TYPE_RU.get(c.get("type_id", "cashier_leaves_during_service"), c.get("type_id", ""))
+                parts.append(f'<div class="obs"><span class="ev">Кандидат {ci + 1} [{html.escape(tname)}]: '
+                             f'{c["absent"][0]:.1f}–'
                              f'{c["absent"][1]:.1f} с — {_DECISION_RU[c["decision"]]}</span>')
                 if c["decision"] == "event":
                     parts.append(f'<br>Событие: {_radios(f"event|{cid}", (("correct", "Верно"), ("false", "Ложное"), ("unclear", "Неясно")))}')

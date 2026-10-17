@@ -26,7 +26,7 @@ from pathlib import Path
 
 from app.contracts import AnalysisError, RuleCatalog
 
-from .. import facts_prompt
+from .. import facts_prompt, facts_v2, rules_v2
 from ..analyzer import Analyzer
 from ..bench_baseline import VramMonitor
 from ..config import load_model_config
@@ -49,8 +49,30 @@ EVAL_RULE = {
     "status": "verified"}
 
 
-def eval_catalog() -> RuleCatalog:
-    return RuleCatalog.model_validate({"schema_version": "0.1", "rules": [EVAL_RULE]})
+_SRC = {"source_title": EVAL_RULE["source_title"], "source_url": EVAL_RULE["source_url"],
+        "effective_version_checked_at": EVAL_RULE["effective_version_checked_at"], "status": "verified",
+        "required_context": [], "counterexamples": []}
+EVAL_RULES_V2 = [
+    dict(EVAL_RULE, type_id=rules_v2.TYPE_CASH01, rule_id="EVAL-CASH-01-candidate"),
+    dict(_SRC, rule_id="EVAL-CASH-02-candidate", type_id=rules_v2.TYPE_CASH02,
+         type_name_ru="Пересчёт наличных не в присутствии клиента", clause="п. 20, абзац первый",
+         scope="EVAL ONLY: приём и пересчёт наличных от клиента",
+         observable_condition="cashier counts cash >= 2 frames with no client at counter; client shortly before",
+         claim_template_ru="Это может указывать на пересчёт принятых наличных не в присутствии клиента (п. 20); "
+                           "требуется проверка человеком."),
+    dict(_SRC, rule_id="EVAL-COLLECT-02-candidate", type_id=rules_v2.TYPE_COLLECT02,
+         type_name_ru="Вскрытие инкассаторской сумки без инкассатора", clause="п. 25",
+         scope="EVAL ONLY: приём инкассаторской сумки",
+         observable_condition="collection bag opened >= 2 frames with no collector; collector shortly before",
+         claim_template_ru="Это может указывать на вскрытие и пересчёт сумки не в присутствии работника "
+                           "инкассации (п. 25); повреждение сумки по видео не проверялось; требуется проверка "
+                           "человеком."),
+]
+
+
+def eval_catalog(mode: str = "v1") -> RuleCatalog:
+    rules = EVAL_RULES_V2 if mode == "v2" else [EVAL_RULE]
+    return RuleCatalog.model_validate({"schema_version": "0.1", "rules": rules})
 
 
 def run_videos(analyzer: Analyzer, videos: list[dict], out: Path, budget_sec: float) -> list[dict]:
@@ -87,6 +109,10 @@ def aggregate(results: list[dict]) -> dict:
             b["events"] += len((r.get("result") or {}).get("events", []))
             for c in cands:
                 b["candidates"][c["decision"]] += 1
+                if c["decision"] == "event":
+                    t = c.get("type_id", "cashier_leaves_during_service")
+                    et = b.setdefault("event_types", {})
+                    et[t] = et.get(t, 0) + 1
             b["frames"] += len(tl)
             b["frames_unknown_presence"] += sum(1 for f in tl if "unknown" in (f[2], f[3]))
     for b in groups.values():
@@ -106,7 +132,8 @@ def main() -> int:
     ap.add_argument("--platform", choices=["windows-x64", "linux-x64"],
                     default="windows-x64" if sys.platform == "win32" else "linux-x64")
     ap.add_argument("--gpu", type=int, default=0, help="индекс GPU для замера памяти")
-    ap.add_argument("--max-tokens", type=int, default=512)
+    ap.add_argument("--mode", choices=["v1", "v2"], default="v2", help="v1: CASH-01; v2: CASH-01/02, COLLECT-02")
+    ap.add_argument("--max-tokens", type=int, default=0, help="0 = 512 для v1, 1024 для v2")
     ap.add_argument("--call-timeout", type=float, default=120.0)
     ap.add_argument("--budget-sec", type=float, default=240.0)
     ap.add_argument("--out", type=Path, default=ROOT / "outputs" / "dev_eval")
@@ -117,15 +144,17 @@ def main() -> int:
     base = load_model_config(ROOT / "configs/model.yaml")
     run_root = args.out / datetime.now().strftime("%Y%m%d-%H%M%S")
     extra = json.loads(args.extra_body) if args.extra_body else None
+    prompt_version = facts_v2.PROMPT_VERSION if args.mode == "v2" else facts_prompt.FACTS_PROMPT_VERSION
+    args.max_tokens = args.max_tokens or (1024 if args.mode == "v2" else 512)
     plan = [(args.label, None)] if args.endpoint else [(v.strip(), v.strip()) for v in args.variants.split(",")]
-    report = {"prompt_version": facts_prompt.FACTS_PROMPT_VERSION, "max_tokens": args.max_tokens,
-              "rule": "EVAL-CASH-01-candidate (not production)", "videos": len(videos), "variants": {},
+    report = {"prompt_version": prompt_version, "max_tokens": args.max_tokens,
+              "rules": [r["rule_id"] for r in eval_catalog(args.mode).model_dump()["rules"]] + ["(EVAL, not production)"], "videos": len(videos), "variants": {},
               "note": "label_agreement compares binary source labels only (type/timing not verified); "
-                      "failed is counted separately, never as negative; coverage is CASH-01 only"}
+                      "failed is counted separately, never as negative; coverage = rules listed"}
     for label, variant in plan:
         out = run_root / label
         out.mkdir(parents=True, exist_ok=True)
-        cfg = dataclasses.replace(base, prompt_version=facts_prompt.FACTS_PROMPT_VERSION, max_tokens=args.max_tokens)
+        cfg = dataclasses.replace(base, prompt_version=prompt_version, max_tokens=args.max_tokens)
         if variant:
             v = manifest["variants"][variant]
             cfg = dataclasses.replace(cfg, server=server_config(manifest, variant, args.platform), model_id=v["repo"],
@@ -146,7 +175,7 @@ def main() -> int:
                 client = server.client
             else:
                 client = LlamaClient(args.endpoint)
-            analyzer = Analyzer(cfg, eval_catalog(), client, call_timeout_sec=args.call_timeout)
+            analyzer = Analyzer(cfg, eval_catalog(args.mode), client, call_timeout_sec=args.call_timeout)
             analyzer.extra_body = extra
             results = run_videos(analyzer, videos, out, args.budget_sec)
         finally:
