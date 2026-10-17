@@ -5,6 +5,9 @@
   const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100 MiB
   const POLL_INTERVAL_MS = 2000;
 
+  // CPU-generated geometric test clip: no real scenes, no audio; demo only.
+  const SYNTHETIC_MOV_BASE64 = "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";
+
   // Синтетический JPEG из приложенного tests/fixtures/contracts/done_violation.json
   const SYNTHETIC_JPEG_BASE64 =
     "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";
@@ -86,6 +89,15 @@
 
   // Ссылки на DOM-элементы
   const dom = {
+    appShell: document.getElementById("appShell"),
+    pageTitle: document.getElementById("pageTitle"),
+    pageLead: document.getElementById("pageLead"),
+    useDemoSampleBtn: document.getElementById("useDemoSampleBtn"),
+    eventTimeline: document.getElementById("eventTimeline"),
+    eventNavigator: document.getElementById("eventNavigator"),
+    selectedEventStatus: document.getElementById("selectedEventStatus"),
+    previousEventBtn: document.getElementById("previousEventBtn"),
+    nextEventBtn: document.getElementById("nextEventBtn"),
     demoBanner: document.getElementById("demoBanner"),
     notice: document.getElementById("notice"),
     videoPanel: document.getElementById("videoPanel"),
@@ -95,10 +107,12 @@
     videoMessage: document.getElementById("videoMessage"),
     processingHeading: document.getElementById("processingHeading"),
     processingDescription: document.getElementById("processingDescription"),
+    processingCancelHint: document.getElementById("processingCancelHint"),
     demoModeToggle: document.getElementById("demoModeToggle"),
     demoSettingsBox: document.getElementById("demoSettingsBox"),
     demoScenarioSelect: document.getElementById("demoScenarioSelect"),
 
+    authPanel: document.getElementById("authPanel"),
     apiKeyInput: document.getElementById("apiKeyInput"),
     keyStatusBadge: document.getElementById("keyStatusBadge"),
     toggleKeyVisibilityBtn: document.getElementById("toggleKeyVisibilityBtn"),
@@ -167,9 +181,10 @@
 
   function formatFileSize(bytes) {
     if (!Number.isFinite(bytes) || bytes < 0) return "";
-    if (bytes < 1024) return `${bytes} Б`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} КиБ`;
-    return `${(bytes / (1024 * 1024)).toFixed(2)} МиБ`;
+    const number = (value, digits) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: digits }).format(value);
+    if (bytes < 1024) return `${number(bytes, 0)} Б`;
+    if (bytes < 1024 * 1024) return `${number(bytes / 1024, 1)} КиБ`;
+    return `${number(bytes / (1024 * 1024), 2)} МиБ`;
   }
 
   // Безопасная отрисовка описания с выделением HTTP(S) ссылок из текста description
@@ -284,6 +299,7 @@
   // Управление API-ключом в памяти
   function updateApiKeyState() {
     state.apiKey = dom.apiKeyInput.value.trim();
+    dom.apiKeyInput.removeAttribute("aria-invalid");
     if (state.apiKey.length > 0) {
       dom.keyStatusBadge.textContent = "Ключ в памяти";
       dom.keyStatusBadge.className = "badge badge--ok";
@@ -317,6 +333,7 @@
       dom.errorCodeBadge.classList.add("hidden");
     }
     dom.errorAlert.classList.remove("hidden");
+    dom.errorAlert.focus({ preventScroll: true });
   }
 
   function hideError() {
@@ -328,13 +345,13 @@
       case 401:
         return {
           title: "Ошибка авторизации (HTTP 401)",
-          message: "Передан неверный или отсутствующий заголовок X-API-Key. Проверьте введённый API-ключ и повторите попытку.",
+          message: "Ключ доступа не принят. Проверьте ключ в боковой панели и повторите попытку.",
           code: "HTTP 401"
         };
       case 404:
         return {
           title: "Задание не найдено (HTTP 404)",
-          message: "Запрошенный идентификатор job_id не существует на сервере.",
+          message: "Результат этой проверки не найден. Выберите видео и запустите новую проверку.",
           code: "HTTP 404"
         };
       case 413:
@@ -382,7 +399,7 @@
     if (!isMovExtension) {
       showError(
         "Неподдерживаемое расширение файла",
-        "Согласно контракту сервиса assar, к загрузке допускаются только видеофайлы формата .mov.",
+        "Выберите видео в формате QuickTime (.mov). Другие форматы пока не поддерживаются.",
         "Клиентская проверка"
       );
       dom.fileInput.value = "";
@@ -457,7 +474,6 @@
     }
     dom.video.currentTime = seconds;
     dom.videoMessage.textContent = `Переход к ${formatTimecode(seconds)}. Нажмите «Воспроизвести» в плеере.`;
-    dom.video.scrollIntoView({ block: "center" });
   }
 
   function timecodeButton(seconds, label) {
@@ -487,6 +503,13 @@
     invalidateRun();
     closeImageModal();
     dom.violationsList.textContent = "";
+    dom.eventTimeline.textContent = "";
+    dom.eventTimeline.classList.add("hidden");
+    dom.eventNavigator.classList.add("hidden");
+    dom.previousEventBtn.onclick = null;
+    dom.nextEventBtn.onclick = null;
+    dom.pageTitle.textContent = "Проверка кассового видео";
+    dom.pageLead.textContent = "От видеозаписи — к событиям, которые можно проверить.";
     dom.notice.classList.add("hidden");
     state.activeJobId = null;
     state.demoPollTicks = 0;
@@ -517,13 +540,17 @@
     dom.processingSection.classList.remove("hidden");
 
     dom.processingJobId.textContent = jobId || "Ожидаем подтверждения приёма";
-    dom.processingHeading.textContent = jobId ? "Выполняется анализ видеозаписи" : "Отправка видеозаписи";
+    dom.processingHeading.textContent = jobId ? "Анализируем видеозапись…" : "Отправляем видеозапись…";
     dom.processingDescription.textContent = state.run.demoMode
       ? "Демонстрация на синтетических данных. Видео не отправляется на сервер."
       : jobId ? "Видео принято. Ожидаем результат анализа; процент готовности недоступен."
         : "Передаём видео сервису. Приём задания ещё не подтверждён.";
+    dom.processingCancelHint.textContent = state.run.demoMode
+      ? "В деморежиме серверная обработка не запускается."
+      : "Уже начатая обработка на сервере продолжится.";
     dom.processingFileName.textContent = fileName || "—";
     dom.processingElapsed.textContent = "00:00";
+    dom.processingHeading.focus({ preventScroll: true });
 
     if (state.elapsedTimerId !== null) {
       clearInterval(state.elapsedTimerId);
@@ -543,12 +570,14 @@
     dom.uploadSection.classList.add("hidden");
     dom.processingSection.classList.add("hidden");
     dom.resultSection.classList.remove("hidden");
+    dom.pageTitle.textContent = "Обзор проверки";
+    dom.pageLead.textContent = "Сопоставьте события с записью и изучите основания.";
 
     const isViolation = jobData.verdict === "violation";
     const violations = Array.isArray(jobData.violations) ? jobData.violations : [];
 
     dom.verdictBanner.className =
-      "card verdict-card " + (isViolation ? "verdict-card--violation" : "verdict-card--no-violation");
+      "verdict-card " + (isViolation ? "verdict-card--violation" : "verdict-card--no-violation");
 
     if (isViolation) {
       dom.resultHeading.textContent = "Обнаружены признаки нарушения";
@@ -568,6 +597,14 @@
     dom.resultStatus.textContent = jobData.status;
     dom.resultFileName.textContent = state.selectedFile ? state.selectedFile.name : "—";
     dom.resultEventsCount.textContent = String(violations.length);
+    dom.verdictBanner.querySelector(".verdict-card__label").textContent = state.demoMode
+      ? "Демонстрационный результат" : "Результат проверки";
+    if (state.demoMode) {
+      dom.verdictSubtitle.textContent = "Синтетические события и кадры для просмотра интерфейса. Это не результат анализа видеозаписи.";
+    }
+    dom.eventTimeline.textContent = "";
+    dom.eventTimeline.classList.toggle("hidden", violations.length === 0);
+    dom.eventNavigator.classList.toggle("hidden", violations.length === 0);
 
     // Сортировка событий по timecode_sec согласно CONTRACTS.md
     const sortedViolations = violations.slice().sort(function (a, b) {
@@ -578,13 +615,56 @@
 
     if (sortedViolations.length > 0) {
       dom.violationsContainer.classList.remove("hidden");
+      let selectedIndex = 0;
+      const selectEvent = function (index, seek) {
+        if (index < 0 || index >= sortedViolations.length) return;
+        selectedIndex = index;
+        Array.from(dom.violationsList.children).forEach((card, i) => {
+          card.hidden = i !== index;
+          if (i === index) card.scrollTop = 0;
+        });
+        const buttons = Array.from(dom.eventTimeline.children);
+        buttons.forEach((button, i) => button.setAttribute("aria-pressed", String(i === index)));
+        dom.selectedEventStatus.textContent = `Событие ${index + 1} из ${sortedViolations.length}`;
+        dom.previousEventBtn.disabled = index === 0;
+        dom.nextEventBtn.disabled = index === sortedViolations.length - 1;
+        // Scroll only the horizontal strip. Never move the document or focus.
+        const button = buttons[index];
+        const left = button.offsetLeft;
+        if (left < dom.eventTimeline.scrollLeft) dom.eventTimeline.scrollLeft = left;
+        else if (left + button.offsetWidth > dom.eventTimeline.scrollLeft + dom.eventTimeline.clientWidth) {
+          dom.eventTimeline.scrollLeft = left + button.offsetWidth - dom.eventTimeline.clientWidth;
+        }
+        if (seek) seekVideo(sortedViolations[index].timecode_sec);
+      };
       sortedViolations.forEach(function (ev, idx) {
         const card = createEventCardElement(ev, idx + 1);
+        card.id = `event-card-${idx + 1}`;
+        card.hidden = idx !== 0;
+        card.tabIndex = 0;
+        card.setAttribute("aria-label", `Подробности события ${idx + 1}`);
         dom.violationsList.appendChild(card);
+        const jump = document.createElement("button");
+        jump.type = "button";
+        jump.className = "event-chip";
+        const label = document.createElement("span");
+        label.textContent = `Событие ${idx + 1}`;
+        const time = document.createElement("strong");
+        time.textContent = formatTimecode(ev.timecode_sec).split(" (")[0];
+        jump.append(label, time);
+        jump.setAttribute("aria-label", `Событие ${idx + 1}: ${formatTimecode(ev.timecode_sec)}`);
+        jump.setAttribute("aria-controls", card.id);
+        jump.addEventListener("click", () => selectEvent(idx, true));
+        dom.eventTimeline.appendChild(jump);
       });
+      dom.previousEventBtn.onclick = () => selectEvent(selectedIndex - 1, true);
+      dom.nextEventBtn.onclick = () => selectEvent(selectedIndex + 1, true);
+      selectEvent(0, false);
     } else {
       dom.violationsContainer.classList.add("hidden");
     }
+    dom.resultHeading.focus({ preventScroll: true });
+    (state.demoMode ? dom.demoBanner : dom.pageTitle).scrollIntoView({ block: "start" });
   }
 
   function createEventCardElement(eventItem, indexNumber) {
@@ -598,13 +678,17 @@
     const titleGroup = document.createElement("div");
     titleGroup.className = "event-card__title-group";
 
-    const indexBadge = document.createElement("span");
+    const indexBadge = document.createElement("h4");
     indexBadge.className = "event-card__index";
-    indexBadge.textContent = `Событие #${indexNumber}`;
+    indexBadge.textContent = `Событие ${indexNumber}`;
 
     const typeSpan = document.createElement("span");
     typeSpan.className = "event-card__type";
     typeSpan.textContent = eventItem.type;
+    if (state.demoMode && eventItem.type === "synthetic_contract_example") {
+      typeSpan.textContent = "Синтетический пример";
+    }
+    typeSpan.setAttribute("translate", "no");
 
     titleGroup.appendChild(indexBadge);
     titleGroup.appendChild(typeSpan);
@@ -646,13 +730,15 @@
         img.src = dataUri;
         img.alt = `Кадр-доказательство ${frameIdx + 1} (${eventItem.type})`;
         img.loading = "lazy";
+        img.width = 640;
+        img.height = 400;
 
         imgBtn.appendChild(img);
         imgBtn.addEventListener("click", function () {
           openImageModal(
             dataUri,
             `Событие #${indexNumber}: ${eventItem.type}`,
-            `Кадр ${frameIdx + 1} из ${frames.length} • PTS: ${formatTimecode(frame.timestamp_sec)}`
+            `Кадр ${frameIdx + 1} из ${frames.length}. Отметка ${formatTimecode(frame.timestamp_sec)}`
           );
         });
 
@@ -689,7 +775,9 @@
     }
     if (!state.demoMode && !state.apiKey) {
       showError("Не указан API-ключ", "Введите ключ доступа к сервису.", null);
+      dom.authPanel.open = true;
       dom.apiKeyInput.focus();
+      dom.apiKeyInput.setAttribute("aria-invalid", "true");
       return;
     }
     const run = {
@@ -746,6 +834,11 @@
     const info = mapHttpError(status);
     resetToUploadScreen(true);
     showError(info.title, info.message + (run.demoMode ? " (Синтетическая демонстрация)" : ""), info.code);
+    if (status === 401 && !run.demoMode) {
+      dom.authPanel.open = true;
+      dom.apiKeyInput.setAttribute("aria-invalid", "true");
+      dom.apiKeyInput.focus();
+    }
   }
 
   function scheduleNextPoll(run) {
@@ -759,7 +852,19 @@
     if (run.demoMode) {
       run.demoTicks += 1;
       if (run.demoTicks < 2) { scheduleNextPoll(run); return; }
-      await handleJobResponseData(SYNTHETIC_FIXTURES[run.scenario], run);
+      let fixture = SYNTHETIC_FIXTURES[run.scenario];
+      if (run.scenario === "many_events") {
+        fixture = structuredClone(SYNTHETIC_FIXTURES.violation);
+        fixture.violations = Array.from({ length: 12 }, (_, index) => {
+          const event = structuredClone(SYNTHETIC_FIXTURES.violation.violations[index % 2]);
+          const seconds = Number((0.3 + index * 0.35).toFixed(2));
+          event.timecode_sec = seconds;
+          event.description = `СИНТЕТИЧЕСКИЙ ПРИМЕР ${index + 1}. Геометрическая тестовая сцена для проверки навигации по ленте. Это не наблюдение банковской операции и не юридический вывод. Тестовый источник: https://example.invalid/synthetic-rule`;
+          event.evidence_frames.forEach(frame => { frame.timestamp_sec = seconds; });
+          return event;
+        });
+      }
+      await handleJobResponseData(fixture, run);
       return;
     }
     try {
@@ -801,16 +906,24 @@
   }
 
   // Модальное окно для просмотра кадров
+  let modalReturnFocus = null;
   function openImageModal(src, title, metaText) {
+    modalReturnFocus = document.activeElement;
     dom.modalImage.src = src;
     dom.modalTitle.textContent = title;
     dom.modalMeta.textContent = metaText;
     dom.imageModal.classList.remove("hidden");
+    dom.appShell.inert = true;
+    dom.closeModalBtn.focus();
   }
 
   function closeImageModal() {
+    const wasOpen = !dom.imageModal.classList.contains("hidden");
     dom.imageModal.classList.add("hidden");
     dom.modalImage.removeAttribute("src");
+    dom.appShell.inert = false;
+    if (wasOpen && modalReturnFocus && modalReturnFocus.isConnected) modalReturnFocus.focus({ preventScroll: true });
+    modalReturnFocus = null;
   }
 
   // Привязка обработчиков событий
@@ -821,6 +934,8 @@
       const isPassword = dom.apiKeyInput.type === "password";
       dom.apiKeyInput.type = isPassword ? "text" : "password";
       dom.toggleKeyVisibilityBtn.textContent = isPassword ? "Скрыть" : "Показать";
+      dom.toggleKeyVisibilityBtn.setAttribute("aria-label", isPassword ? "Скрыть ключ" : "Показать ключ");
+      dom.toggleKeyVisibilityBtn.setAttribute("aria-pressed", String(isPassword));
     });
 
     dom.clearKeyBtn.addEventListener("click", function () {
@@ -832,17 +947,16 @@
     dom.demoModeToggle.addEventListener("change", function (e) {
       setDemoMode(e.target.checked);
     });
+    dom.useDemoSampleBtn.addEventListener("click", function () {
+      if (!state.demoMode) return;
+      const bytes = Uint8Array.from(atob(SYNTHETIC_MOV_BASE64), ch => ch.charCodeAt(0));
+      handleFileSelection(new File([bytes], "synthetic-demo.mov", { type: "video/quicktime" }));
+      dom.startAnalysisBtn.focus();
+    });
 
     // Выбор файла через клик и Drag-and-Drop
     dom.dropZone.addEventListener("click", function (e) {
       if (e.target !== dom.fileInput) dom.fileInput.click();
-    });
-
-    dom.dropZone.addEventListener("keydown", function (e) {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        dom.fileInput.click();
-      }
     });
 
     dom.fileInput.addEventListener("change", function (e) {
@@ -881,6 +995,7 @@
 
     dom.newUploadBtn.addEventListener("click", function () {
       resetToUploadScreen(false);
+      dom.dropZone.focus();
     });
 
     dom.errorResetBtn.addEventListener("click", function () {
@@ -894,6 +1009,10 @@
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape" && !dom.imageModal.classList.contains("hidden")) {
         closeImageModal();
+      }
+      if (e.key === "Tab" && !dom.imageModal.classList.contains("hidden")) {
+        e.preventDefault();
+        dom.closeModalBtn.focus();
       }
     });
   }
@@ -911,6 +1030,12 @@
     resetToUploadScreen(false);
     dom.apiKeyInput.value = "";
     updateApiKeyState();
+  });
+  window.addEventListener("beforeunload", function (event) {
+    if (state.run && !state.run.demoMode) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
   });
   initEventListeners();
   // Browsers can restore form controls on reload: always start with the real API.

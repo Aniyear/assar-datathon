@@ -23,9 +23,9 @@ const done = () => ({job_id:"test-job", status:"done", verdict:"no_violation", v
 const positive = () => ({...structuredClone(fixture), job_id:"test-job"});
 
 async function fresh() {
-  iframe.srcdoc = html.replace('<script src="app.js"></script>',
-    '<script src="/tests/setup.js"></script><script src="/app.js"></script>')
-    .replace('href="styles.css"', 'href="/styles.css"');
+  iframe.srcdoc = html.replace(/<script src="app\.js([^\"]*)"><\/script>/,
+    '<script src="/tests/setup.js"></script><script src="/app.js$1"></script>')
+    .replace('href="styles.css', 'href="/styles.css');
   await new Promise(resolve => iframe.onload = resolve);
   w = iframe.contentWindow; d = w.document;
   el("apiKeyInput").value = "synthetic-test-key";
@@ -115,6 +115,41 @@ document.getElementById("run").onclick = async function () {
       select("second.mov"); click("startAnalysisBtn");
       await until(() => visible("resultSection"), "Second upload failed");
       assert(el("resultFileName").textContent === "second.mov", "Old file name remains");
+    });
+    await test("Встроенный синтетический MOV: декодирование, результат и отсутствие API-запросов", async () => {
+      click("clearKeyBtn"); mode(true); click("useDemoSampleBtn");
+      await until(() => el("localVideo").readyState >= 1, "Embedded MOV does not decode");
+      assert(el("localVideo").duration >= 3.2, "Embedded clip shorter than synthetic evidence");
+      assert(el("selectedFileName").textContent === "synthetic-demo.mov", "Wrong sample selected");
+      click("startAnalysisBtn");
+      await until(() => visible("resultSection"), "No sample result");
+      assert(w.testCalls.length === 0, "Sample called the API");
+      assert(visible("demoBanner") && el("verdictSubtitle").textContent.includes("Синтетические"), "Unlabelled demo result");
+      assert(el("eventTimeline").querySelectorAll("button").length === 2, "Missing event navigation");
+      el("eventTimeline").querySelectorAll("button")[1].click();
+      await until(() => Math.abs(el("localVideo").currentTime - 3) < .1, "Timeline seek failed");
+    });
+    await test("Просмотр кадра: фокус, Tab, Escape и возврат на исходную кнопку", async () => {
+      api(positive()); select(); click("startAnalysisBtn");
+      await until(() => visible("resultSection"), "No result");
+      const opener = d.querySelector(".frame-card__btn"); opener.focus(); opener.click();
+      assert(d.activeElement === el("closeModalBtn"), "Dialog did not take focus");
+      assert(el("appShell").inert, "Background remains interactive");
+      d.dispatchEvent(new w.KeyboardEvent("keydown", {key:"Tab",shiftKey:true,bubbles:true,cancelable:true}));
+      assert(d.activeElement === el("closeModalBtn"), "Focus escaped dialog");
+      d.dispatchEvent(new w.KeyboardEvent("keydown", {key:"Escape",bubbles:true}));
+      assert(!visible("imageModal") && !el("appShell").inert && d.activeElement === opener, "Dialog failed to restore focus");
+    });
+    await test("Нет ключа: фокус ошибки; повторная проверка доступна с клавиатуры", async () => {
+      select(); click("clearKeyBtn"); click("startAnalysisBtn");
+      assert(visible("errorAlert") && d.activeElement === el("apiKeyInput"), "Missing-key error focus lost");
+      assert(el("apiKeyInput").getAttribute("aria-invalid") === "true", "Missing inline invalid state");
+      el("apiKeyInput").value = "synthetic-test-key"; el("apiKeyInput").dispatchEvent(new w.Event("input"));
+      assert(!el("apiKeyInput").hasAttribute("aria-invalid"), "Invalid state not cleared");
+      api(done()); click("startAnalysisBtn");
+      await until(() => visible("resultSection"), "Retry failed");
+      click("newUploadBtn");
+      assert(el("dropZone").tagName === "BUTTON" && d.activeElement === el("dropZone"), "New upload keyboard focus lost");
     });
     for (const width of [390, 1024, 1440]) {
       await test(`Вёрстка ${width}px: загрузка и результат без горизонтальной прокрутки`, async () => {

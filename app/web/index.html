@@ -3,290 +3,196 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#F6F5F3">
   <title>assar — Проверка кассового видео</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=refresh-10">
 </head>
 <body>
-  <!-- Предупреждающий баннер деморежима (скрыт по умолчанию) -->
-  <div id="demoBanner" class="demo-banner hidden" role="status" aria-live="polite">
-    <div class="container demo-banner__inner">
-      <span class="demo-banner__badge">Синтетические данные</span>
-      <span class="demo-banner__text">
-        Серверная проверка отключена. Используются синтетические примеры для демонстрации интерфейса — это не результаты модели и не правовые заключения.
-      </span>
+  <a class="skip-link" href="#mainContent">Перейти к проверке</a>
+  <div id="appShell" class="app-shell">
+    <aside class="sidebar" aria-label="Панель сервиса">
+      <div class="sidebar__top">
+        <a class="brand" href="#mainContent" aria-label="assar — к проверке видео">
+          <span class="brand__mark" aria-hidden="true"><svg viewBox="0 0 32 32" width="32" height="32" fill="none"><path d="M7 24 15 8h5l5 16h-5l-1-4h-6l-2 4H7Z" fill="currentColor"/><path d="m15 16 3-6" stroke="#B60948" stroke-width="2"/></svg></span>
+          <span class="brand__name" translate="no">assar<span class="brand__dot">.</span></span>
+        </a>
+        <p class="sidebar__caption">Визуальный контроль кассовых операций</p>
+      </div>
+      <nav class="workspace-nav" aria-label="Рабочая область">
+        <a href="#mainContent" aria-current="page" class="workspace-nav__active">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m10 8.5 6 3.5-6 3.5v-7Z"/></svg>
+          <span>Проверка видео</span>
+        </a>
+      </nav>
+      <details id="authPanel" class="access-panel" open>
+        <summary class="access-panel__heading">
+          <h2 id="authHeading">Доступ к сервису</h2>
+          <svg class="access-panel__chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 9 6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </summary>
+        <label for="apiKeyInput">API-ключ</label>
+        <div class="key-input">
+          <input type="password" id="apiKeyInput" name="api-key" placeholder="Введите ключ…" autocomplete="off" spellcheck="false" aria-describedby="keyHelp">
+          <button type="button" id="toggleKeyVisibilityBtn" class="key-toggle" aria-label="Показать ключ" aria-pressed="false">Показать</button>
+        </div>
+        <div class="key-status-row"><span id="keyStatusBadge" class="badge badge--neutral" role="status">Ключ не задан</span><button type="button" id="clearKeyBtn" class="text-button">Сбросить</button></div>
+        <p id="keyHelp" class="small-note">Хранится только в памяти открытой вкладки.</p>
+      </details>
+      <div class="sidebar__bottom">
+        <div class="demo-box">
+          <label class="demo-switch" for="demoModeToggle">
+            <span>Деморежим</span><input type="checkbox" id="demoModeToggle" name="demo-mode" role="switch">
+          </label>
+          <p class="small-note">Проверка интерфейса на синтетических примерах.</p>
+        </div>
+        <details class="about-service"><summary>О сервисе</summary><p>Прототип для ForteBank Datathon. Анализирует только изображение, без звука и идентификации лиц. Не является официальным продуктом банка.</p></details>
+        <span class="sidebar__signature">ForteBank Datathon 2026</span>
+      </div>
+    </aside>
+
+    <div class="workspace">
+      <header class="workspace-bar">
+        <div class="workspace-bar__crumbs"><span>Рабочее пространство</span><span class="workspace-bar__separator" aria-hidden="true">/</span><strong>Видеоанализ</strong></div>
+        <span class="workspace-bar__badge"><span aria-hidden="true"></span> Локальная модель</span>
+      </header>
+      <main id="mainContent" class="main-content" tabindex="-1">
+        <div class="demo-strip">
+          <div id="demoBanner" class="demo-banner hidden" role="status">
+            <span class="demo-banner__badge">Синтетические данные</span>
+            <span class="demo-banner__text">Демонстрация интерфейса. Видео не отправляется на анализ; результаты не являются выводами модели.</span>
+          </div>
+          <div id="demoSettingsBox" class="demo-settings hidden">
+            <label for="demoScenarioSelect">Сценарий</label>
+            <div class="select-wrap">
+              <select id="demoScenarioSelect" name="demo-scenario" class="select-input">
+                <option value="violation">Есть события — 2 события и 4 кадра</option>
+                <option value="many_events">Лента — 12 синтетических событий</option>
+                <option value="no_violation">Нарушений не выявлено</option>
+                <option value="failed">Сбой обработки видео</option>
+                <option value="http_401">401 — неверный ключ</option>
+                <option value="http_415">415 — неподдерживаемый формат</option>
+                <option value="http_422">422 — повреждённый файл</option>
+                <option value="http_503">503 — сервис занят</option>
+              </select>
+            </div>
+            <button id="useDemoSampleBtn" type="button" class="btn btn--secondary btn--sm">Тестовый файл</button>
+          </div>
+        </div>
+
+        <header id="pageIntro" class="page-intro">
+          <div><h1 id="pageTitle">Проверка кассового видео</h1><p id="pageLead">От видеозаписи — к событиям, которые можно проверить.</p></div>
+          <span class="page-intro__note">Одна запись · точные таймкоды и кадры рядом</span>
+        </header>
+
+        <section id="errorAlert" class="alert hidden" role="alert" tabindex="-1">
+          <div><div class="alert__header"><strong id="errorTitle">Не удалось выполнить проверку</strong><span id="errorCodeBadge" class="badge badge--error hidden"></span></div><p id="errorMessage"></p></div>
+          <button type="button" id="errorResetBtn" class="btn btn--secondary">Выбрать другой файл</button>
+        </section>
+        <p id="notice" class="notice hidden" role="status"></p>
+
+        <section id="uploadSection" class="upload-layout" aria-labelledby="uploadHeading">
+          <div class="upload-surface">
+            <div class="section-heading">
+              <div>
+                <h2 id="uploadHeading">Новая проверка</h2>
+                <p class="section-lead">Добавьте запись с камеры кассового узла для поиска проверяемых событий.</p>
+              </div>
+              <span class="format-tag" translate="no">QuickTime · MOV</span>
+            </div>
+            <input type="file" id="fileInput" name="video" class="sr-only" tabindex="-1" accept=".mov,video/quicktime" aria-label="Видео для проверки">
+            <div id="selectedFilePanel" class="selected-file hidden">
+              <div class="selected-file__details"><span class="file-symbol" aria-hidden="true">MOV</span><div class="selected-file__text"><span class="selected-file__label">Файл готов к проверке</span><strong id="selectedFileName" class="selected-file__name"></strong><span id="selectedFileSize" class="small-note"></span></div><button type="button" id="changeFileBtn" class="btn btn--secondary btn--sm">Заменить</button></div>
+              <button type="button" id="startAnalysisBtn" class="btn btn--primary btn--full"><span>Начать проверку</span><span aria-hidden="true">→</span></button>
+            </div>
+            <button type="button" id="dropZone" class="dropzone" aria-describedby="uploadRequirements">
+              <span class="upload-symbol" aria-hidden="true">
+                <svg width="34" height="34" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="6" y="5" width="24" height="26" rx="4"/><path d="M18 23V13m-4 4 4-4 4 4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+              <span class="dropzone__copy">
+                <span class="dropzone__title">Перетащите видео сюда</span>
+                <span class="dropzone__subtitle">или выберите файл на компьютере</span>
+              </span>
+              <span class="dropzone__cta">Выбрать видео <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14m-7-7h14" stroke-linecap="round"/></svg></span>
+            </button>
+            <p id="uploadRequirements" class="upload-requirements"><span>QuickTime (.mov)</span><span>До 100 МиБ</span><span>Один файл за проверку</span></p>
+            <div class="upload-footnote"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z"/><path d="m8.5 12 2.5 2.5 4.5-5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Предпросмотр остаётся в браузере. Отправка начинается после нажатия «Начать проверку».</span></div>
+          </div>
+
+          <div class="upload-side-column">
+            <div id="videoHome" class="video-home-slot">
+              <aside id="videoPanel" class="video-panel hidden" aria-labelledby="videoHeading">
+                <div class="video-panel__header"><h2 id="videoHeading">Видеозапись</h2><span class="badge badge--neutral">Локальный просмотр</span></div>
+                <div class="video-stage"><video id="localVideo" controls muted playsinline preload="metadata" aria-label="Выбранная видеозапись" aria-describedby="videoMessage"></video></div>
+                <p id="videoMessage" class="video-message" role="status"></p>
+              </aside>
+            </div>
+
+            <aside class="review-guide" aria-labelledby="guideHeading">
+              <div class="review-guide__header">
+                <span class="review-guide__eyebrow">Состав отчёта</span>
+                <h2 id="guideHeading">У каждого события есть контекст</h2>
+                <p>Результат собран так, чтобы вы могли вернуться к записи и оценить основания.</p>
+              </div>
+              <ul class="guide-list">
+                <li>
+                  <span class="guide-list__icon" aria-hidden="true">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2" stroke-linecap="round"/></svg>
+                  </span>
+                  <div><strong>Точный момент</strong><span>Переход к событию в видеозаписи</span></div>
+                </li>
+                <li>
+                  <span class="guide-list__icon" aria-hidden="true">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.5"/><path d="m21 15-4.5-4.5L9 18"/></svg>
+                  </span>
+                  <div><strong>Кадры-доказательства</strong><span>От 1 до 3 кадров на событие</span></div>
+                </li>
+                <li>
+                  <span class="guide-list__icon" aria-hidden="true">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 4h9l4 4v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"/><path d="M9 12h6M9 16h4"/></svg>
+                  </span>
+                  <div><strong>Описание и источник</strong><span>Наблюдение с нормативным основанием</span></div>
+                </li>
+              </ul>
+              <p class="guide-disclaimer">Вывод сервиса помогает проверке. Окончательную оценку даёт специалист.</p>
+            </aside>
+          </div>
+        </section>
+
+        <section id="processingSection" class="processing-surface hidden" aria-labelledby="processingHeading">
+          <div class="processing-view"><div class="scan-symbol" aria-hidden="true"><span class="spinner"></span><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m10 8 6 4-6 4V8Z"/></svg></div>
+            <h2 id="processingHeading" tabindex="-1">Анализируем видеозапись…</h2>
+            <p id="processingDescription" role="status"></p>
+            <div class="processing-timer"><span>Прошло времени</span><strong id="processingElapsed" role="timer" aria-live="off">00:00</strong></div>
+            <dl class="processing-meta"><div><dt>Видеофайл</dt><dd id="processingFileName">—</dd></div><div><dt>Номер проверки</dt><dd id="processingJobId">—</dd></div></dl>
+            <button type="button" id="cancelPollingBtn" class="btn btn--secondary">Остановить ожидание</button>
+            <p id="processingCancelHint" class="small-note">Уже начатая обработка на сервере продолжится.</p>
+          </div>
+        </section>
+
+        <section id="resultSection" class="result-section hidden" aria-labelledby="resultHeading">
+          <div id="verdictBanner" class="verdict-card">
+            <div class="verdict-card__main"><div class="verdict-card__info"><span class="verdict-card__label">Результат проверки</span><h2 id="resultHeading" tabindex="-1">—</h2><p id="verdictSubtitle"></p></div><button type="button" id="newUploadBtn" class="btn btn--secondary">Проверить другое видео <span aria-hidden="true">+</span></button></div>
+            <div class="verdict-summary"><div class="verdict-summary__file"><span>Видеофайл</span><strong id="resultFileName">—</strong></div><div class="verdict-summary__events"><strong id="resultEventsCount">0</strong><span>событий в записи</span></div></div>
+          </div>
+          <section id="eventNavigator" class="event-navigator hidden" aria-label="Выбор события">
+            <div class="event-navigator__heading"><h3>События в записи</h3><span>Выберите момент для просмотра</span></div>
+            <nav id="eventTimeline" class="event-timeline hidden" aria-label="Моменты событий"></nav>
+          </section>
+          <div class="result-workspace">
+            <div class="result-video-column"><div id="resultVideoSlot"></div><details class="technical-details"><summary>Данные проверки</summary><dl><div><dt>Статус</dt><dd id="resultStatus">—</dd></div><div><dt>ID проверки</dt><dd id="resultJobId" translate="no">—</dd></div><div><dt>Вердикт API</dt><dd><span id="verdictRawBadge" translate="no"></span></dd></div></dl></details></div>
+            <div class="events-column">
+              <div id="violationsContainer" class="violations-container hidden"><div class="violations-header"><h3 id="selectedEventStatus" aria-live="polite" aria-atomic="true">Событие</h3><div class="event-step-buttons"><button id="previousEventBtn" type="button" class="btn btn--secondary btn--sm" aria-label="Предыдущее событие">← Назад</button><button id="nextEventBtn" type="button" class="btn btn--secondary btn--sm" aria-label="Следующее событие">Далее →</button></div></div><div id="violationsList" class="violations-list"></div></div>
+              <div class="clean-state-card"><span class="clean-state-card__icon" aria-hidden="true">✓</span><h3>События с признаками нарушений отсутствуют</h3><p>В пределах поддерживаемой проверки события не обнаружены. Это не проверка всех возможных нарушений кассового обслуживания.</p></div>
+            </div>
+          </div>
+        </section>
+        <footer class="footer"><span>assar — прототип для ForteBank Datathon</span><span>Визуальный анализ без звука</span></footer>
+      </main>
     </div>
   </div>
-
-  <!-- Компактная шапка: бренд + компактные настройки доступа -->
-  <header class="topbar">
-    <div class="container topbar__inner">
-      <div class="brand">
-        <div class="brand__mark" aria-hidden="true">a</div>
-        <div class="brand__titles">
-          <span class="brand__name">assar</span>
-          <span class="brand__subtitle">Видеоконтроль кассовых операций</span>
-        </div>
-      </div>
-
-      <section class="access-bar" aria-labelledby="authHeading">
-        <h2 id="authHeading" class="sr-only">Настройки доступа</h2>
-
-        <div class="access-bar__key-group">
-          <span id="keyStatusBadge" class="badge badge--neutral">Ключ не задан</span>
-          <div class="access-bar__input-wrap">
-            <label for="apiKeyInput" class="sr-only">Ключ доступа к API</label>
-            <input
-              type="password"
-              id="apiKeyInput"
-              class="text-input text-input--compact"
-              placeholder="Ключ доступа API..."
-              autocomplete="off"
-              spellcheck="false"
-            >
-            <button type="button" id="toggleKeyVisibilityBtn" class="btn btn--ghost btn--xs" aria-label="Показать или скрыть ключ">
-              Показать
-            </button>
-            <button type="button" id="clearKeyBtn" class="btn btn--ghost btn--xs">
-              Сбросить
-            </button>
-          </div>
-        </div>
-
-        <div class="access-bar__divider" aria-hidden="true"></div>
-
-        <label class="demo-switch" for="demoModeToggle" title="Включить демонстрационный режим с тестовыми примерами">
-          <input type="checkbox" id="demoModeToggle">
-          <span class="demo-switch__label">Деморежим</span>
-        </label>
-      </section>
-    </div>
-
-    <!-- Выпадающая панель выбора сценария (видна только при включённом деморежиме) -->
-    <div id="demoSettingsBox" class="demo-subbar hidden">
-      <div class="container demo-subbar__inner">
-        <label for="demoScenarioSelect" class="demo-subbar__title">Тестовый сценарий:</label>
-        <select id="demoScenarioSelect" class="select-input select-input--compact">
-          <option value="violation">Обнаружены нарушения (2 события, кадры-доказательства)</option>
-          <option value="no_violation">Нарушений не выявлено (чистая проверка)</option>
-          <option value="failed">Сбой обработки видеозаписи</option>
-          <option value="http_401">Ошибка 401 — Неверный ключ доступа</option>
-          <option value="http_415">Ошибка 415 — Неподдерживаемый формат файла</option>
-          <option value="http_422">Ошибка 422 — Повреждённый видеофайл</option>
-          <option value="http_503">Ошибка 503 — Сервер временно занят</option>
-        </select>
-      </div>
-    </div>
-  </header>
-
-  <main class="container main-content">
-    <!-- Короткий заголовок и одно предложение о задаче -->
-    <header class="page-intro">
-      <h1 class="page-intro__title">Проверка кассового видео</h1>
-      <p class="page-intro__lead">
-        Загрузите запись с камеры кассового узла, чтобы получить вердикт, точные таймкоды событий и кадры-доказательства.
-      </p>
-    </header>
-
-    <!-- Блок уведомлений об ошибках -->
-    <section id="errorAlert" class="alert alert--error hidden" role="alert" aria-live="assertive">
-      <div class="alert__content">
-        <div class="alert__header">
-          <strong id="errorTitle" class="alert__title">Не удалось выполнить проверку</strong>
-          <span id="errorCodeBadge" class="badge badge--error hidden"></span>
-        </div>
-        <p id="errorMessage" class="alert__body"></p>
-      </div>
-      <div class="alert__actions">
-        <button type="button" id="errorResetBtn" class="btn btn--secondary btn--sm">Выбрать другой файл</button>
-      </div>
-    </section>
-
-    <p id="notice" class="surface notice hidden" role="status" aria-live="polite"></p>
-
-    <!-- Состояние 1: Главная область загрузки (визуальный центр начального экрана) -->
-    <section id="uploadSection" class="surface upload-surface" aria-labelledby="uploadHeading">
-      <div class="sr-only">
-        <h2 id="uploadHeading">Выбор видеофайла для анализа</h2>
-      </div>
-
-      <div id="dropZone" class="dropzone" tabindex="0" role="button" aria-label="Выбрать видео формата MOV или перетащить файл в эту область">
-        <input type="file" id="fileInput" class="sr-only" accept=".mov,video/quicktime">
-        <div class="dropzone__icon-circle" aria-hidden="true">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="17 8 12 3 7 8"/>
-            <line x1="12" y1="3" x2="12" y2="15"/>
-          </svg>
-        </div>
-        <span class="dropzone__cta">Выбрать видео</span>
-        <p class="dropzone__primary">или перетащите файл <strong>.mov</strong> в эту область</p>
-        <p class="dropzone__secondary">Запись кассовой операции • QuickTime (.mov) • до 100 МиБ</p>
-      </div>
-
-      <!-- Панель выбранного файла и главная кнопка запуска анализа -->
-      <div id="selectedFilePanel" class="selected-file hidden">
-        <div class="selected-file__details">
-          <div class="selected-file__icon" aria-hidden="true">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <polygon points="23 7 16 12 23 17 23 7"/>
-              <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
-            </svg>
-          </div>
-          <div class="selected-file__text">
-            <span class="selected-file__label">Готово к проверке</span>
-            <div class="selected-file__name-row">
-              <strong id="selectedFileName" class="selected-file__name"></strong>
-              <span id="selectedFileSize" class="selected-file__meta"></span>
-            </div>
-          </div>
-        </div>
-        <div class="selected-file__actions">
-          <button type="button" id="changeFileBtn" class="btn btn--secondary">Заменить видео</button>
-          <button type="button" id="startAnalysisBtn" class="btn btn--primary btn--lg">Начать проверку</button>
-        </div>
-      </div>
-    </section>
-
-    <div id="videoHome">
-      <aside id="videoPanel" class="surface video-panel hidden" aria-labelledby="videoHeading">
-        <div class="video-panel__header">
-          <h2 id="videoHeading" class="video-panel__title">Видеозапись операции</h2>
-          <span class="badge badge--outline">Локальный просмотр</span>
-        </div>
-        <div class="video-stage">
-          <video id="localVideo" class="video-stage__player" controls muted playsinline preload="metadata" aria-label="Выбранное видео"></video>
-        </div>
-        <p id="videoMessage" class="video-message" role="status" aria-live="polite"></p>
-      </aside>
-    </div>
-
-    <!-- Состояние 2: Спокойное ожидание обработки с прошедшим временем -->
-    <section id="processingSection" class="surface processing-surface hidden" aria-labelledby="processingHeading" aria-live="polite">
-      <div class="processing-view">
-        <div class="spinner" aria-hidden="true"></div>
-        <span class="badge badge--processing">Идёт проверка</span>
-        <h2 id="processingHeading" class="processing-view__title">Анализируем видеозапись</h2>
-        <p id="processingDescription" class="processing-view__desc">
-          Система проверяет действия в кадре и формирует подборку доказательств. Пожалуйста, не закрывайте вкладку — проверка может занять до нескольких минут.
-        </p>
-
-        <div class="processing-timer" aria-label="Прошедшее время">
-          <span class="processing-timer__label">Прошло времени</span>
-          <span id="processingElapsed" class="processing-timer__value">00:00</span>
-        </div>
-
-        <dl class="processing-meta">
-          <div class="processing-meta__item">
-            <dt>Видеофайл:</dt>
-            <dd id="processingFileName">—</dd>
-          </div>
-          <div class="processing-meta__item processing-meta__item--muted">
-            <dt>Номер проверки:</dt>
-            <dd id="processingJobId" class="mono">—</dd>
-          </div>
-        </dl>
-
-        <div class="processing-view__actions">
-          <button type="button" id="cancelPollingBtn" class="btn btn--secondary btn--sm">
-            Остановить ожидание
-          </button>
-        </div>
-      </div>
-    </section>
-
-    <!-- Состояние 3: Итог анализа, место под видеоплеер и карточки событий -->
-    <section id="resultSection" class="result-section hidden" aria-labelledby="resultHeading">
-      <!-- Главный баннер вердикта -->
-      <div id="verdictBanner" class="surface verdict-card">
-        <div class="verdict-card__main">
-          <div class="verdict-card__info">
-            <span class="verdict-card__eyebrow">Результат проверки</span>
-            <h2 id="resultHeading" class="verdict-card__title">—</h2>
-            <p id="verdictSubtitle" class="verdict-card__subtitle"></p>
-          </div>
-          <div class="verdict-card__actions">
-            <button type="button" id="newUploadBtn" class="btn btn--primary">
-              Проверить другое видео
-            </button>
-          </div>
-        </div>
-
-        <!-- Компактная строка сводки (технические поля приглушены) -->
-        <dl class="verdict-summary">
-          <div class="verdict-summary__item">
-            <dt>Файл</dt>
-            <dd id="resultFileName">—</dd>
-          </div>
-          <div class="verdict-summary__item">
-            <dt>Зафиксировано событий</dt>
-            <dd id="resultEventsCount" class="verdict-summary__count">0</dd>
-          </div>
-          <div class="verdict-summary__item verdict-summary__item--tech">
-            <dt>Статус</dt>
-            <dd id="resultStatus" class="mono">—</dd>
-          </div>
-          <div class="verdict-summary__item verdict-summary__item--tech">
-            <dt>ID проверки</dt>
-            <dd id="resultJobId" class="mono">—</dd>
-          </div>
-          <div class="verdict-summary__item verdict-summary__item--tech">
-            <dt>Код вердикта</dt>
-            <dd><span id="verdictRawBadge" class="badge mono"></span></dd>
-          </div>
-        </dl>
-      </div>
-
-      <!-- Рабочая сетка: колонка видеоплеера + колонка событий -->
-      <div class="result-workspace">
-        <div id="resultVideoSlot"></div>
-
-        <!-- Правая колонка: список карточек событий и чистый исход -->
-        <div class="events-column">
-          <div id="violationsContainer" class="violations-container hidden">
-            <div class="violations-header">
-              <h3 class="violations-header__title">События и кадры-доказательства</h3>
-              <span class="violations-header__hint">Нажмите на кадр для увеличения</span>
-            </div>
-            <div id="violationsList" class="violations-list"></div>
-          </div>
-
-          <div class="surface clean-state-card">
-            <h3 class="clean-state-card__title">События с признаками нарушений отсутствуют</h3>
-            <p class="clean-state-card__text">
-              В пределах поддерживаемой проверки события не обнаружены. Это не проверка всех возможных нарушений кассового обслуживания.
-            </p>
-          </div>
-        </div>
-      </div>
-    </section>
-  </main>
-
-  <footer class="footer">
-    <div class="container footer__inner">
-      <span><strong>assar</strong> — прототип для кейса ForteBank Datathon. Не является официальным продуктом банка.</span>
-      <span>Локальный визуальный контроль кассовых видеозаписей.</span>
-    </div>
-  </footer>
-
-  <!-- Модальное окно для детального просмотра кадра-доказательства -->
   <div id="imageModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <div id="modalBackdrop" class="modal__backdrop"></div>
-    <div class="modal__dialog">
-      <div class="modal__header">
-        <div>
-          <h3 id="modalTitle" class="modal__title">Кадр-доказательство</h3>
-          <p id="modalMeta" class="modal__meta mono"></p>
-        </div>
-        <button type="button" id="closeModalBtn" class="btn btn--secondary btn--sm" aria-label="Закрыть окно просмотра">
-          Закрыть (Esc)
-        </button>
-      </div>
-      <div class="modal__body">
-        <img id="modalImage" class="modal__image" src="" alt="Увеличенный кадр-доказательство">
-      </div>
-    </div>
+    <div class="modal__dialog"><div class="modal__header"><div><h2 id="modalTitle">Кадр-доказательство</h2><p id="modalMeta"></p></div><button type="button" id="closeModalBtn" class="btn btn--secondary" aria-label="Закрыть просмотр кадра">Закрыть <span aria-hidden="true">×</span></button></div><div class="modal__body"><img id="modalImage" class="modal__image" width="1280" height="720" alt="Увеличенный кадр-доказательство"></div><p class="modal__hint">Esc — закрыть просмотр</p></div>
   </div>
-
-  <script src="app.js"></script>
+  <script src="app.js?v=refresh-9"></script>
 </body>
 </html>
