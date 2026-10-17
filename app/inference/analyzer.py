@@ -17,7 +17,7 @@ from app.contracts import (SCHEMA_VERSION, AnalysisError, AnalysisResult, Analys
                            RuleCatalog, UnassessableVideoError, remaining_seconds, validate_analysis_for_video,
                            validate_analysis_rules)
 
-from . import conditions, facts_prompt, facts_v2, facts_v3, prompts, rules_v2
+from . import conditions, facts_prompt, facts_v2, facts_v3, facts_v4, prompts, rules_v2, rules_v4
 from .config import ModelConfig, load_model_config, load_rule_catalog
 from .video import Frame, probe, sample_frames, windows
 from .vlm import LlamaClient
@@ -85,14 +85,17 @@ class Analyzer:
                 raise AnalyzerNotReadyError(f"{facts_prompt.FACTS_PROMPT_VERSION} needs exactly one verified rule "
                                             f"with type_id {facts_prompt.SUPPORTED_TYPE_ID!r}")
             self.rules = {verified[0].type_id: verified[0]}
-        elif cfg.prompt_version in (facts_v2.PROMPT_VERSION, facts_v3.PROMPT_VERSION):
+        elif cfg.prompt_version in (facts_v2.PROMPT_VERSION, facts_v3.PROMPT_VERSION, facts_v4.PROMPT_VERSION):
             self.mode = "facts_v2"
-            self.facts_pm = facts_v2 if cfg.prompt_version == facts_v2.PROMPT_VERSION else facts_v3
+            self.facts_pm = {facts_v2.PROMPT_VERSION: facts_v2, facts_v3.PROMPT_VERSION: facts_v3,
+                             facts_v4.PROMPT_VERSION: facts_v4}[cfg.prompt_version]
+            self.rules_mod = rules_v4 if self.facts_pm is facts_v4 else rules_v2
             verified = [r for r in catalog.rules if r.status == "verified"]
             types = [r.type_id for r in verified]
-            if not verified or len(set(types)) != len(types) or not set(types) <= set(facts_v2.SUPPORTED_TYPE_IDS):
-                raise AnalyzerNotReadyError(f"{facts_v2.PROMPT_VERSION} needs 1+ verified rules, one per type_id, "
-                                            f"from {facts_v2.SUPPORTED_TYPE_IDS}")
+            supported = self.facts_pm.SUPPORTED_TYPE_IDS
+            if not verified or len(set(types)) != len(types) or not set(types) <= set(supported):
+                raise AnalyzerNotReadyError(f"{cfg.prompt_version} needs 1+ verified rules, one per type_id, "
+                                            f"from {supported}")
             self.rules = {r.type_id: r for r in verified}
         elif cfg.prompt_version == prompts.PROMPT_VERSION:
             self.mode = "observations"
@@ -284,16 +287,17 @@ class Analyzer:
         """CASH-01/02, COLLECT-02: факты по кадрам от модели, условия — rules_v2 по всему ролику."""
         t = time.monotonic()
         by_index = {f.index: f for f in frames}
+        rm = self.rules_mod
         timeline: list[rules_v2.Facts] = []
         for win in windows(frames, self.cfg.window_sec):
             obj = self._ask(win, deadline_monotonic, pm=self.facts_pm)
             for e in self.facts_pm.to_rows(obj):
                 timeline.append(rules_v2.Facts(e["index"], by_index[e["index"]].pts_sec,
-                                               {k: e[k] for k in rules_v2.FIELDS}))
+                                               {k: e[k] for k in rm.FIELDS}))
         timings["inference"] = (time.monotonic() - t) * 1000
         t = time.monotonic()
-        cands = rules_v2.evaluate(timeline)
-        self.last_trace = rules_v2.trace(timeline, cands)
+        cands = rm.evaluate(timeline)
+        self.last_trace = rm.trace(timeline, cands)
         unknown = sum(1 for x in timeline if "unknown" in (x["cashier_at_workplace"], x["client_at_counter"]))
         if unknown * 2 > len(timeline):
             # Реально непригодное видео: большинство кадров не позволяет судить о присутствии людей.
@@ -308,7 +312,7 @@ class Analyzer:
             events.append(Event(
                 event_id=f"ev-{n:03d}", type_id=rule.type_id, type_name_ru=rule.type_name_ru,
                 start_sec=min(pts), end_sec=max(pts), timecode_sec=c.interval[0].pts_sec,
-                observed_fact=rules_v2.describe(c), rule_id=rule.rule_id,
+                observed_fact=rm.describe(c), rule_id=rule.rule_id,
                 evidence=[LocalEvidence(timestamp_sec=f.pts_sec, local_jpeg_path=str(f.evidence_path.resolve()))
                           for f in ev]))
         unruled = sum(1 for c in cands if c.decision == "event" and c.type_id not in self.rules)

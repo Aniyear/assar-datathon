@@ -21,12 +21,14 @@ import sys
 from pathlib import Path
 
 from ..conditions import CONDITION_RU as _CR1
-from ..rules_v2 import CONDITION_RU as _CR2
+from ..rules_v4 import CONDITION_RU as _CR2
 
 CONDITION_RU = {**_CR1, **_CR2}
 _TYPE_RU = {"cashier_leaves_during_service": "CASH-01 уход кассира",
             "cash_counted_without_client": "CASH-02 пересчёт без клиента",
-            "collection_bag_opened_without_collector": "COLLECT-02 сумка без инкассатора"}
+            "collection_bag_opened_without_collector": "COLLECT-02 сумка без инкассатора",
+            "safe_left_unsecured": "SAFE-01 сейф открыт/ключ при уходе",
+            "outsider_in_staff_zone": "ACCESS-01 посторонний в зоне кассира"}
 from .review import _CSS
 
 _STATUS_RU = {"confirmed": "подтверждено", "refuted": "опровергнуто", "not_established": "не установлено"}
