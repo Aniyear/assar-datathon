@@ -1,0 +1,27 @@
+# Competition data stays local
+data/
+analysis/local/
+models/
+weights/
+uploads/
+outputs/
+*.mov
+*.mp4
+*.zip
+*.xlsx
+*.docx
+*.safetensors
+*.pt
+*.onnx
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+node_modules/
+dist/
+.DS_Store
+Thumbs.db
