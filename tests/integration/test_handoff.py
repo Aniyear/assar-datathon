@@ -26,7 +26,7 @@ from app.jobs.serialize import to_done_job
 from app.jobs.store import JobStore
 from app.jobs.supervisor import State, Supervisor, Ticket
 from app.settings import Settings
-from tests.inference.test_analyzer import catalog, synthetic_rule
+from tests.inference.fakes import catalog, synthetic_rule
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -131,7 +131,6 @@ def test_admission_probe_spends_one_shared_budget(tmp_path, monkeypatch):
     assert 0 < budgets[1] <= 1.0
 
 
-@pytest.mark.xfail(strict=True, reason="B4: partial unreadability currently becomes no_violation")
 def test_unreadable_window_cannot_prove_no_violation(synthetic_analysis):
     with pytest.raises(UnassessableVideoError):
         synthetic_analysis([reply(), reply(assessable=False), reply()])
@@ -143,10 +142,16 @@ def test_empty_individual_observation_is_rejected(synthetic_analysis):
         synthetic_analysis([reply("   "), reply(), reply()])
 
 
-@pytest.mark.xfail(strict=True, reason="B6: unmapped observations currently become no_violation")
+@pytest.mark.xfail(strict=True, reason="B6: generic other_notable_action still becomes no_violation")
 def test_unmapped_observation_cannot_prove_no_violation(synthetic_analysis):
     with pytest.raises(UnassessableVideoError):
         synthetic_analysis([reply("SYNTHETIC unmapped", category="other_notable_action"), reply(), reply()])
+
+
+def test_unsupported_candidate_observation_is_rejected(synthetic_analysis):
+    # 45f00ca fixes this candidate-category case, but not the original generic case above.
+    with pytest.raises(InvalidAnalysisResultError):
+        synthetic_analysis([reply("SYNTHETIC candidate", category="cash_bag_opened"), reply(), reply()])
 
 
 @pytest.mark.xfail(strict=True, reason="B7: readiness accepts an arbitrary true key instead of required validations")
