@@ -70,6 +70,15 @@ def create(endpoint: str | None, control: str) -> object:
     return analyze
 
 
+def record_kwargs(**kwargs) -> object:
+    """Factory that records what the worker received (path from ASSAR_TEST_RECORD)."""
+    import json
+    record = {k: (v if isinstance(v, (int, float, str, type(None))) else type(v).__name__)
+              for k, v in kwargs.items()}
+    Path(os.environ["ASSAR_TEST_RECORD"]).write_text(json.dumps(record), encoding="utf-8")
+    return lambda video_path, job_dir, deadline_monotonic: None
+
+
 def server_main() -> None:
     """Fake llama-server: /health ok; spawns one grandchild to test tree cleanup.
 

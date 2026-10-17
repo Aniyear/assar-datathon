@@ -90,7 +90,8 @@ def production_spec(settings: Settings) -> RuntimeSpec:
         raise ServiceNotReady(f"model runtime check failed ({type(exc).__name__})") from None
     return RuntimeSpec(
         analyzer_factory=f"{ML_SERVICE_MODULE}:create_analyzer",
-        analyzer_kwargs={"model_cfg": model_cfg, "catalog": catalog, "repo_root": REPO_ROOT},
+        analyzer_kwargs={"model_cfg": model_cfg, "catalog": catalog, "repo_root": REPO_ROOT,
+                         "call_timeout_sec": float(settings.model_call_timeout_sec)},
         catalog=catalog,
         server_command=lambda port: service.server_command(model_cfg, REPO_ROOT, port),
         log_dir=settings.outputs_dir / "logs",
