@@ -2,7 +2,7 @@
 человек на локальной странице выбирает тип нарушения из списка норм. Наружу — только счётчики типов.
 
 Таймкод метки используется только здесь, для разметки (не для inference анализатора). Frozen test не брать.
-Модель — уже запущенный OpenAI-совместимый сервер на 127.0.0.1 (vLLM с 27B на сервер или llama-server).
+Модель — уже запущенный OpenAI-совместимый сервер на 127.0.0.1 (vLLM или llama-server).
 
     python -m app.inference.experiments.discover run --videos outputs/experiments/videos.traindev.local.json \
         --endpoint http://127.0.0.1:8011 --extra-body '{"model": "qwen3.8-27b", "chat_template_kwargs": {"enable_thinking": false}}'

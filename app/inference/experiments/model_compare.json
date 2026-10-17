@@ -56,7 +56,7 @@
         {"url": "https://github.com/ggml-org/llama.cpp/releases/download/b11669/cudart-llama-b11669-bin-ubuntu-cuda-12.8-x64.tar.gz",
          "bytes": 594377811, "sha256": "ab3eda89a82096bcba00b6448218c3c11eec2016b0f38d64884dc29736549f26"}
       ],
-      "note": "Optional, for the team сервер; quality comparison only, speed must still be measured on RTX 3060"
+      "note": "Optional Linux x64 build; quality comparison only, speed must still be measured on RTX 3060"
     }
   }
 }

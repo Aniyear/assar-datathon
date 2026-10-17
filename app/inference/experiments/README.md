@@ -21,7 +21,7 @@ Frozen test в эксперимент не входит.
 семейства и того же квантования Q8_0, что у baseline.
 
 Runtime: llama.cpp `b11669` (`620d2225c`). Windows — те же бинарники, что у baseline
-(`models/llama.cpp-b11669`, CUDA 12.4). Для сервер (Linux x64) — сборка того же тега:
+(`models/llama.cpp-b11669`, CUDA 12.4). Для Linux x64 (опционально) — сборка того же тега:
 
 | Архив | Байт | SHA256 |
 |---|---:|---|
@@ -35,7 +35,6 @@ Runtime: llama.cpp `b11669` (`620d2225c`). Windows — те же бинарни�
 | Пик VRAM | **3301 МиБ, измерено** (RTX 3050, весь GPU) | **≈ 4,2–4,6 ГиБ, оценка, не измерено**: веса 2,33 + mmproj 0,42 + KV-кэш f16 1,13 (36 слоёв × 8 KV-голов × 128 × ctx 8192) + буферы и CUDA-контекст |
 | RTX 3050 4 ГБ | подходит | **не подходит** |
 | RTX 3060 Laptop 6 ГБ | подходит | только если до старта свободно **≥ 5 ГиБ** (`nvidia-smi`); при аудите было свободно ~3,9 ГБ — закрыть другие GPU-приложения |
-| сервер (Linux) | подходит | подходит; качество сравнимо, скорость нерепрезентативна для 3060 |
 
 - Одновременно на GPU работает один llama-server: варианты запускаются по очереди. Не запускать во время
   интеграционной проверки на 3060 и рядом с другим ML-процессом.
@@ -81,7 +80,7 @@ python app/inference/fetch_runtime.py --dest models
 .\.venv\Scripts\python.exe -m app.inference.experiments.fetch --variants 4b-q4km
 ```
 
-Только для сервер (Linux), там же из корня checkout:
+Только для Linux x64, из корня checkout:
 
 ```bash
 .venv/bin/python -m app.inference.experiments.fetch --variants 2b-q8,4b-q4km --platform linux-x64
@@ -93,7 +92,7 @@ python app/inference/fetch_runtime.py --dest models
 .\.venv\Scripts\python.exe -m app.inference.experiments.compare --videos outputs\experiments\videos.local.json --variants 2b-q8,4b-q4km
 ```
 
-На сервер добавить `--platform linux-x64`. Результат — `outputs\experiments\<время>\`:
+На Linux добавить `--platform linux-x64`. Результат — `outputs\experiments\<время>\`:
 `frames\` (общие кадры), `responses.jsonl` (ответы обоих вариантов по одинаковым окнам), `llama-server-*.log`,
 `summary.json` (агрегаты; он же печатается).
 

@@ -5,7 +5,7 @@
 
     python -m app.inference.experiments.make_video_list --split-csv outputs/experiments/dev_files_for_omar.csv ^
         --videos-dir <папка с видео> --labels-csv <labels_normalized.csv> --diagnostic X-4 ^
-        --out outputs/experiments/videos.dev.local.json --remote-dir /home/user/assar-ml/data/dev
+        --out outputs/experiments/videos.dev.local.json --remote-dir <каталог на удалённой машине> --remote-host <user@host>
 """
 from __future__ import annotations
 
@@ -74,9 +74,9 @@ def main() -> int:
     ap.add_argument("--diagnostic", default="X-4")
     ap.add_argument("--splits", default="dev,train")
     ap.add_argument("--out", type=Path, required=True)
-    ap.add_argument("--remote-dir", help="каталог видео на сервер: создаёт <out>.remote.json и команду scp")
-    ap.add_argument("--remote-host", default="user@remote-host")
-    ap.add_argument("--remote-root", default="~/assar/code", help="корень checkout на сервер")
+    ap.add_argument("--remote-dir", help="каталог видео на удалённой машине команды: создаёт <out>.remote.json и скрипт scp")
+    ap.add_argument("--remote-host", help="user@host для scp (обязателен с --remote-dir)")
+    ap.add_argument("--remote-root", default="~/assar/code", help="корень checkout на удалённой машине")
     args = ap.parse_args()
     items = build(args.split_csv, args.videos_dir, args.labels_csv, set(args.diagnostic.split(",")),
                   set(args.splits.split(",")))
@@ -88,6 +88,8 @@ def main() -> int:
         counts[k] = counts.get(k, 0) + 1
     print(f"{len(items)} unique groups, SHA256 verified; by role/label: {counts}")
     print(f"local list: {args.out}")
+    if args.remote_dir and not args.remote_host:
+        raise SystemExit("--remote-host is required with --remote-dir")
     if args.remote_dir:
         remote = [dict(it, path=f"{args.remote_dir.rstrip('/')}/{it['id']}.mov") for it in items]
         rpath = args.out.with_suffix(".remote.json")
