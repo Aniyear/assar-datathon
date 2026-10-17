@@ -97,7 +97,8 @@ def main() -> int:
         lines = [f"ssh {args.remote_host} \"mkdir -p {args.remote_dir} {lists_dir}\""]
         lines += [f'scp "{it["path"]}" "{args.remote_host}:{args.remote_dir.rstrip("/")}/{it["id"]}.mov"' for it in items]
         lines.append(f'scp "{rpath.resolve()}" "{args.remote_host}:{lists_dir}/{args.out.name}"')
-        cmd.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        # UTF-8 с BOM: иначе Windows PowerShell 5.1 читает кириллицу в именах файлов как ANSI
+        cmd.write_text("\n".join(lines) + "\n", encoding="utf-8-sig")
         print(f"remote list: {rpath}\nupload script (PowerShell): {cmd}")
     return 0
 
