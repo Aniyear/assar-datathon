@@ -17,7 +17,7 @@ from app.inference import AnalyzerNotReadyError, service
 from tests.inference.fakes import FakeLlama, catalog, ok, synthetic_rule
 
 ROOT = Path(__file__).resolve().parents[2]
-CFG = json.loads((ROOT / "configs/model.yaml").read_text(encoding="utf-8"))
+CFG = json.loads((ROOT / "tests/fixtures/model-obs-v01.json").read_text(encoding="utf-8"))
 needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not in PATH")
 
 

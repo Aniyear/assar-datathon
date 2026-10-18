@@ -31,10 +31,10 @@ def _settings(tmp_path: Path, model: dict | None = None, rules: list | None = No
                     rules_catalog_path=catalog_path)
 
 
-def test_current_repo_config_refuses_production(tmp_path):
+def test_pending_config_and_empty_catalog_refuse_production(tmp_path):
     # Holds whether or not the ML module is present in this checkout.
     with pytest.raises(ServiceNotReady) as err:
-        production_spec(_settings(tmp_path))
+        production_spec(_settings(tmp_path, json.loads((REPO_ROOT / "tests/fixtures/model-obs-v01.json").read_text(encoding="utf-8")), []))
     text = str(err.value)
     assert "pending_integration_and_3060_validation" in text and "no verified rules" in text
     assert "validation flags are not all true" in text

@@ -46,7 +46,7 @@ def synthetic_analysis(tmp_path, monkeypatch):
     monkeypatch.setattr(ml, "probe", lambda *a, **k: VideoInfo(25, 0, 32, 24, 0, "synthetic", 1))
     monkeypatch.setattr(ml, "sample_frames", lambda *a, **k: frames)
     cat = catalog(synthetic_rule())
-    cfg = load_model_config(ROOT / "configs/model.yaml")
+    cfg = load_model_config(ROOT / "tests/fixtures/model-obs-v01.json")
 
     def run(replies):
         iterator = iter(replies)
@@ -165,7 +165,7 @@ def test_unsupported_candidate_observation_is_rejected(synthetic_analysis):
 
 def test_readiness_requires_named_evidence_flags(tmp_path, monkeypatch):
     cfg_path, cat_path = tmp_path / "model.json", tmp_path / "catalog.json"
-    cfg = json.loads((ROOT / "configs/model.yaml").read_text(encoding="utf-8"))
+    cfg = json.loads((ROOT / "tests/fixtures/model-obs-v01.json").read_text(encoding="utf-8"))
     cfg.update(status="ready", validation={"unrelated": True})
     cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
     cat_path.write_text(catalog(synthetic_rule()).model_dump_json(), encoding="utf-8")

@@ -20,7 +20,7 @@ def test_backend_timeout_reaches_real_service_and_bounds_model_http(tmp_path, mo
     cat_path.write_text(catalog(synthetic_rule()).model_dump_json(), encoding="utf-8")
     settings = Settings.from_env({
         "ASSAR_API_KEY": "synthetic", "ASSAR_MODEL_CALL_TIMEOUT_SEC": "2",
-        "ASSAR_MODEL_CONFIG_PATH": str(root / "configs/model.yaml"),
+        "ASSAR_MODEL_CONFIG_PATH": str(root / "tests/fixtures/model-obs-v01.json"),
         "ASSAR_RULES_CATALOG_PATH": str(cat_path),
         "ASSAR_UPLOADS_DIR": str(tmp_path / "uploads"),
         "ASSAR_OUTPUTS_DIR": str(tmp_path / "outputs"),

@@ -24,7 +24,7 @@ def test_smoke_observer_preserves_finish_reason_and_logs_no_content(tmp_path, fi
     try:
         analyze = gpu_smoke.observed_create_analyzer(
             telemetry_path=telemetry, endpoint=server.url,
-            model_cfg=json.loads((ROOT / "configs/model.yaml").read_text(encoding="utf-8")),
+            model_cfg=json.loads((ROOT / "tests/fixtures/model-obs-v01.json").read_text(encoding="utf-8")),
             catalog=catalog(synthetic_rule()), repo_root=ROOT, call_timeout_sec=17.0)
         video = make_mov(tmp_path / "synthetic.mov")
         job = tmp_path / "job"
@@ -59,7 +59,7 @@ def test_gpu_harness_reuse_deadline_and_cleanup_on_cpu_fake_server(tmp_path, mon
 
     monkeypatch.setattr(gpu_smoke, "smoke_spec", cpu_spec)
     monkeypatch.setattr(gpu_smoke, "gpu_snapshot", lambda: {"gpu": None, "apps": None})
-    cfg = json.loads((ROOT / "configs/model.yaml").read_text(encoding="utf-8"))
+    cfg = json.loads((ROOT / "tests/fixtures/model-obs-v01.json").read_text(encoding="utf-8"))
     original_cfg = json.dumps(cfg, sort_keys=True)
     clip = make_mov(tmp_path / "synthetic.mov").read_bytes()
     normal = gpu_smoke.phase(tmp_path / "normal", cfg, ROOT, "synthetic", clip)

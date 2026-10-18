@@ -30,7 +30,7 @@ def video(tmp_path_factory):
 
 @pytest.fixture
 def cfg():
-    return load_model_config(ROOT / "configs/model.yaml")
+    return load_model_config(ROOT / "tests/fixtures/model-obs-v01.json")
 
 
 def run(cfg, cat, responder, video, tmp_path, budget=60.0):
@@ -44,7 +44,7 @@ def run(cfg, cat, responder, video, tmp_path, budget=60.0):
         srv.close()
 
 
-def test_repo_config_matches_working_baseline(cfg):
+def test_legacy_observation_config_matches_working_baseline(cfg):
     s = cfg.server
     assert (s.ctx, s.image_max_tokens, s.n_gpu_layers, s.parallel, s.offline) == (8192, 256, 99, 1, True)
     assert (cfg.max_tokens, cfg.temperature, cfg.top_k, cfg.seed, cfg.cache_prompt) == (384, 0.0, 1, 0, False)
@@ -52,8 +52,8 @@ def test_repo_config_matches_working_baseline(cfg):
     assert (cfg.quantization, cfg.mmproj_quantization, cfg.runtime_tag) == ("Q8_0", "Q8_0", "b11669")
 
 
-def test_empty_repo_catalog_blocks_production(cfg):
-    cat = load_rule_catalog(ROOT / "app/rules/catalog.json")
+def test_empty_catalog_blocks_production(cfg):
+    cat = catalog()
     with pytest.raises(AnalyzerNotReadyError):
         Analyzer(cfg, cat, LlamaClient("http://127.0.0.1:9"))
 
@@ -234,7 +234,7 @@ def test_init_worker_with_synthetic_catalog(tmp_path, monkeypatch):
     srv = FakeLlama(lambda idx: ok())
     try:
         monkeypatch.setattr(analyzer_mod, "_ANALYZER", None)
-        a = analyzer_mod.init_worker(model_config_path=ROOT / "configs/model.yaml", rules_catalog_path=cat_path,
+        a = analyzer_mod.init_worker(model_config_path=ROOT / "tests/fixtures/model-obs-v01.json", rules_catalog_path=cat_path,
                                      server_url=srv.url)
         assert analyzer_mod._ANALYZER is a
     finally:

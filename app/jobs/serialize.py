@@ -24,11 +24,15 @@ def to_done_job(job_id: str, result: AnalysisResult, catalog: RuleCatalog, durat
     violations = []
     for event in result.events:
         rule = rules[event.rule_id]
+        description = describe(event.observed_fact, rule)
+        if any(note.startswith("mandatory ") for note in result.limitations):
+            description += (" Обязательный анализ завершён не полностью; "
+                            "другие события могли быть пропущены.")
         frames = [EvidenceFrame(timestamp_sec=f.timestamp_sec,
                                 image_base64=base64.b64encode(Path(f.local_jpeg_path).read_bytes()).decode("ascii"))
                   for f in event.evidence]
         violations.append(Violation(type=rule.type_name_ru, timecode_sec=event.timecode_sec,
-                                    description=describe(event.observed_fact, rule),
+                                    description=description,
                                     evidence_frames=frames))
     done = DoneJob(job_id=job_id, status="done", verdict=result.verdict, violations=violations)
     return validate_done_for_video(done, duration_sec)
