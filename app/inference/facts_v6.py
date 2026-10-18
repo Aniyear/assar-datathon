@@ -50,11 +50,14 @@ DESK = _PerFrame("desk", {
     "desk_valuables": "are banknotes, a stack of cash, coin rolls or a cash-collection bag lying on the desk or table "
                       "(not inside the safe, a drawer or the cash machine)?"})
 PASSES = (PEOPLE, DESK)
+ESSENTIAL_PASSES = (PEOPLE,)  # при нехватке времени «стол» пропускается: CASH-03 там не оценивается
 _ = (_TRI_HINT,)
 
 
 def merge(objs: list[dict], idx: list[int]) -> list[dict]:
-    people, desk = PEOPLE.rows(objs[0]), DESK.rows(objs[1])
+    """objs — ответы PASSES по порядку; без ответа «стола» desk_valuables = unknown."""
+    people = PEOPLE.rows(objs[0])
+    desk = DESK.rows(objs[1]) if len(objs) > 1 else {i: {"desk_valuables": "unknown"} for i in idx}
     return [{"index": i, "cashier_at_workplace": people[i]["cashier"], "others_count": people[i]["others"],
              "desk_valuables": desk[i]["desk_valuables"]} for i in idx]
 
@@ -89,3 +92,39 @@ def verify_validate(obj, frame_indices: list[int]) -> bool:
     seen = [e.get("index") for e in obj["frames"]
             if isinstance(e, dict) and e.get("two_others_inside") in ("yes", "no", "unknown")]
     return sorted(seen) == sorted(frame_indices)
+
+
+# Рамки для доказательного кадра MULTI-01: кого модель посчитала (только силуэт, без лица и личности).
+# Qwen3-VL возвращает координаты в относительной сетке 0–1000 по ширине и высоте кадра.
+BOX_GRID = 1000
+MAX_BOXES = 6
+BOX_PROMPT = (
+    "The frame shows a bank cash office from a fixed overhead camera. The cashier is the employee at the staff side "
+    "of the desk. Give a bounding box for EACH person OTHER than the cashier who is INSIDE the room (not behind a "
+    "glass door or wall). bbox_2d is [x1, y1, x2, y2] in relative coordinates from 0 to 1000. Do not identify people.")
+
+
+def box_parts(frame) -> list[str | Path]:
+    return [BOX_PROMPT, f"Frame {frame.index}, t={frame.pts_sec:.1f}s:", frame.model_path, "Answer in JSON."]
+
+
+def box_schema() -> dict:
+    box = {"type": "array", "items": {"type": "integer"}, "minItems": 4, "maxItems": 4}
+    item = {"type": "object", "properties": {"bbox_2d": box}, "required": ["bbox_2d"]}
+    return {"type": "object", "properties": {"people": {"type": "array", "maxItems": MAX_BOXES, "items": item}},
+            "required": ["people"]}
+
+
+def boxes(obj) -> list[tuple[int, int, int, int]] | None:
+    """Проверенные рамки (x1 < x2, y1 < y2, в пределах сетки) или None, если ответ не по схеме."""
+    if not isinstance(obj, dict) or not isinstance(obj.get("people"), list):
+        return None
+    out = []
+    for e in obj["people"]:
+        b = e.get("bbox_2d") if isinstance(e, dict) else None
+        if not (isinstance(b, list) and len(b) == 4 and all(isinstance(v, int) and 0 <= v <= BOX_GRID for v in b)):
+            return None
+        if b[0] < b[2] and b[1] < b[3]:
+            out.append(tuple(b))
+    return out
+

@@ -9,7 +9,7 @@ from pathlib import Path
 
 from app.contracts import AnalysisTimeoutError, DecodeError
 
-__all__ = ["DecodeError", "VideoInfo", "Frame", "probe", "sample_frames", "windows"]
+__all__ = ["DecodeError", "VideoInfo", "Frame", "probe", "sample_frames", "sample_range", "annotate_boxes", "windows"]
 
 # Допуск только на округление float в выводе showinfo/ffprobe, не на ошибку PTS.
 _PTS_EPS = 1e-3
@@ -122,6 +122,62 @@ def sample_frames(video: Path, out_dir: Path, step_sec: float, info: VideoInfo, 
     if any(b.pts_sec <= a.pts_sec for a, b in zip(frames, frames[1:])):
         raise DecodeError("non-monotonic frame PTS")
     return frames
+
+
+def sample_range(video: Path, out_dir: Path, step_sec: float, info: VideoInfo, start_sec: float, end_sec: float,
+                 max_frames: int, index_base: int, model_height: int = 0, ffmpeg: str = "ffmpeg",
+                 timeout: float = 60) -> list[Frame]:
+    """Кадры не чаще step_sec только в [start_sec, end_sec] (секунды от начала, как у sample_frames).
+
+    Быстрый seek на входе (-ss до ближайшего ключевого кадра) с -copyts: PTS остаются исходными, поэтому
+    start_time контейнера вычитается здесь один раз. Индексы начинаются с index_base, чтобы не совпадать с
+    основной выборкой.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    st = info.start_time_sec
+    a, b = max(0.0, start_sec), min(info.duration_sec, end_sec)
+    seek = max(0.0, a - 2.0)
+    sel = (f"select='gte(t\\,{a + st:.6f})*lte(t\\,{b + st:.6f})*"
+           f"(isnan(prev_selected_t)+gte(t-prev_selected_t\\,{step_sec}))',showinfo")
+    n = ["-frames:v", str(max_frames)]
+    if model_height:
+        graph = f"[0:v]{sel},split=2[e][m];[m]scale=-2:{model_height}[ms]"
+        maps = ["-map", "[e]", *n, "-fps_mode", "vfr", "-q:v", "2", str(out_dir / "e_%05d.jpg"),
+                "-map", "[ms]", *n, "-fps_mode", "vfr", "-q:v", "3", str(out_dir / "m_%05d.jpg")]
+    else:
+        graph = f"[0:v]{sel}[e]"
+        maps = ["-map", "[e]", *n, "-fps_mode", "vfr", "-q:v", "2", str(out_dir / "e_%05d.jpg")]
+    cmd = [ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "info", "-xerror",
+           "-ss", f"{seek + st:.6f}", "-copyts", "-t", f"{b - seek + 0.5:.6f}",
+           "-i", str(video), "-filter_complex", graph, *maps, "-y"]
+    r = _run(cmd, timeout)
+    if r.returncode != 0:
+        raise DecodeError("ffmpeg range decode failed")
+    frames = []
+    for i, t in enumerate(float(m.group(2)) - st for m in _PTS_RE.finditer(r.stderr)):
+        if i >= max_frames:
+            break
+        if not -_PTS_EPS <= t <= info.duration_sec + _PTS_EPS:
+            raise DecodeError("frame PTS outside video duration")
+        e = out_dir / f"e_{i + 1:05d}.jpg"
+        m = out_dir / f"m_{i + 1:05d}.jpg" if model_height else e
+        if not e.exists() or not m.exists():
+            raise DecodeError("frame count mismatch between showinfo and written files")
+        frames.append(Frame(index=index_base + i, pts_sec=min(max(t, 0.0), info.duration_sec),
+                            evidence_path=e, model_path=m))
+    return frames
+
+
+def annotate_boxes(src: Path, dst: Path, boxes, grid: int, ffmpeg: str = "ffmpeg", timeout: float = 30) -> None:
+    """Копия JPEG с рамками; координаты — в относительной сетке grid × grid."""
+    if timeout <= 0:
+        raise AnalysisTimeoutError("no time left to annotate evidence")
+    draw = ",".join(f"drawbox=x=iw*{x1}/{grid}:y=ih*{y1}/{grid}:w=iw*{x2 - x1}/{grid}:h=ih*{y2 - y1}/{grid}"
+                    f":color=red@0.9:t=4" for x1, y1, x2, y2 in boxes)
+    r = _run([ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error", "-i", str(src), "-vf", draw,
+              "-frames:v", "1", "-q:v", "2", "-y", str(dst)], timeout)
+    if r.returncode != 0 or not dst.is_file():
+        raise DecodeError("ffmpeg annotate failed")
 
 
 def windows(frames: list[Frame], window_sec: float) -> list[list[Frame]]:

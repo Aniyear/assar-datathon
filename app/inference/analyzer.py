@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import statistics
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -20,13 +21,26 @@ from app.contracts import (SCHEMA_VERSION, AnalysisError, AnalysisResult, Analys
 from . import (conditions, facts_prompt, facts_v2, facts_v3, facts_v4, facts_v5, facts_v6, prompts, rules_v2,
                rules_v4, rules_v6)
 from .config import ModelConfig, load_model_config, load_rule_catalog
-from .video import Frame, probe, sample_frames, windows
+from .video import Frame, annotate_boxes, probe, sample_frames, sample_range, windows
 from .vlm import LlamaClient
 
 PROBE_TIMEOUT_SEC = 30.0
 # Категории промпта, не соответствующие ни одному кандидату нарушения (см. prompts.CATEGORIES).
 GENERIC_CATEGORIES = frozenset({"other_notable_action"})
 DECODE_TIMEOUT_SEC = 120.0
+# Укладка в дедлайн (v6): по замеренной цене кадра, если все проходы не успеть, сначала пропускается «стол»,
+# затем берётся каждый 2-й, 3-й кадр. Запас — на проверку кандидатов, рамки и сборку результата.
+BUDGET_SAFETY = 1.25
+BUDGET_RESERVE_SEC = 10.0
+BUDGET_RESERVE_IMAGES = 16
+MAX_STRIDE = 3
+# Плотная перепроверка MULTI-01: кадры через полшага (сдвинуты относительно основной выборки) у начала кандидата;
+# повторное «2+ при кассире» на DENSE_MIN_RUN кадрах подряд — второй независимый голос.
+DENSE_MAX = 10
+DENSE_MIN_RUN = 3
+DENSE_INDEX_BASE = 100_000
+MULTI_DENSE_IN_CORE = False  # True — событие требует согласия плотной перепроверки (по замеру на train)
+ANNOTATE_EVIDENCE = True     # рамки людей кроме кассира на среднем доказательном кадре MULTI-01
 
 
 class AnalyzerNotReadyError(RuntimeError):
@@ -66,6 +80,52 @@ def verified_rules_by_type(catalog: RuleCatalog) -> dict[str, Rule]:
     if not rules:
         raise AnalyzerNotReadyError("rule catalog has no verified rules; production analysis is blocked")
     return rules
+
+
+class _Budget:
+    """Оценка времени по факту: секунды на кадр запроса × оставшиеся кадры × проходы против остатка дедлайна."""
+
+    def __init__(self, deadline: float):
+        self.deadline = deadline
+        self.img_sec: list[float] = []
+        self.skip_desk_from: float | None = None
+        self.stride, self.stride_from = 1, None
+
+    def note(self, n_images: int, sec: float) -> None:
+        self.img_sec.append(sec / max(n_images, 1))
+
+    def per_img(self) -> float:
+        return BUDGET_SAFETY * statistics.fmean(self.img_sec) if self.img_sec else 0.0
+
+    def fits(self, n_images: int) -> bool:
+        return not self.img_sec or n_images * self.per_img() + 2.0 < remaining_seconds(self.deadline)
+
+    def plan(self, rest: list[list[Frame]], n_passes: int) -> None:
+        if not self.img_sec:
+            return
+        left = remaining_seconds(self.deadline) - BUDGET_RESERVE_SEC - BUDGET_RESERVE_IMAGES * self.per_img()
+        n = sum(len(w) for w in rest)
+
+        def cost(passes: int, stride: int) -> float:
+            return n * passes * self.per_img() / stride
+        if self.skip_desk_from is None and n_passes > 1 and cost(n_passes, self.stride) > left:
+            self.skip_desk_from = rest[0][0].pts_sec
+        passes = 1 if self.skip_desk_from is not None else n_passes
+        while self.stride < MAX_STRIDE and cost(passes, self.stride) > left:
+            self.stride += 1
+            self.stride_from = rest[0][0].pts_sec if self.stride_from is None else self.stride_from
+
+    def trace(self) -> dict:
+        return {"sec_per_image": round(self.per_img(), 3), "desk_skipped_from_sec": self.skip_desk_from,
+                "stride": self.stride, "stride_from_sec": self.stride_from}
+
+
+def _longest(flags: list[bool]) -> int:
+    best = cur = 0
+    for x in flags:
+        cur = cur + 1 if x else 0
+        best = max(best, cur)
+    return best
 
 
 def _pick_evidence(frames: list[Frame]) -> list[Frame]:
@@ -180,7 +240,7 @@ class Analyzer:
         remaining_seconds(deadline_monotonic)
         self.last_trace = None
         if self.mode == "facts_v2":
-            return self._analyze_facts_v2(info, frames, job_dir, deadline_monotonic, timings, t_start)
+            return self._analyze_facts_v2(info, frames, job_dir, deadline_monotonic, timings, t_start, video_path)
         if self.mode == "facts":
             return self._analyze_facts(info, frames, job_dir, deadline_monotonic, timings, t_start)
 
@@ -287,16 +347,28 @@ class Analyzer:
         return self._finish(events, limitations, info, job_dir, deadline_monotonic, timings, t_start)
 
     def _analyze_facts_v2(self, info, frames: list[Frame], job_dir: Path, deadline_monotonic: float,
-                          timings: dict[str, float], t_start: float) -> AnalysisResult:
+                          timings: dict[str, float], t_start: float, video_path: Path | None = None) -> AnalysisResult:
         """CASH-01/02, COLLECT-02: факты по кадрам от модели, условия — rules_v2 по всему ролику."""
         t = time.monotonic()
         by_index = {f.index: f for f in frames}
         rm = self.rules_mod
         timeline: list[rules_v2.Facts] = []
-        for win in windows(frames, self.cfg.window_sec):
+        budget = _Budget(deadline_monotonic) if self.facts_pm is facts_v6 else None
+        wins = windows(frames, self.cfg.window_sec)
+        for k, win in enumerate(wins):
             if self.facts_pm in (facts_v5, facts_v6):  # специалисты: отдельный короткий запрос на каждую задачу
-                rows = self.facts_pm.merge([self._ask(win, deadline_monotonic, pm=p) for p in self.facts_pm.PASSES],
-                                           [f.index for f in win])
+                passes = self.facts_pm.PASSES
+                if budget:
+                    budget.plan(wins[k:], len(passes))
+                    passes = facts_v6.ESSENTIAL_PASSES if budget.skip_desk_from is not None else passes
+                    win = win[::budget.stride]
+                objs = []
+                for p in passes:
+                    t0 = time.monotonic()
+                    objs.append(self._ask(win, deadline_monotonic, pm=p))
+                    if budget:
+                        budget.note(len(win), time.monotonic() - t0)
+                rows = self.facts_pm.merge(objs, [f.index for f in win])
             else:
                 rows = self.facts_pm.to_rows(self._ask(win, deadline_monotonic, pm=self.facts_pm))
             for e in rows:
@@ -309,11 +381,18 @@ class Analyzer:
             for c in cands:
                 if c.type_id == rules_v4.TYPE_ACCESS01 and c.decision == "event":
                     self._verify_access(c, by_index, deadline_monotonic)
+        dense = []
         if rm is rules_v6:
-            for c in cands:
+            for n, c in enumerate(cands):
                 if c.type_id == rules_v6.TYPE_MULTI01 and c.decision == "event":
-                    self._verify(c, by_index, deadline_monotonic, facts_v6, "two_others_inside", "multi_verified")
+                    self._verify(c, by_index, deadline_monotonic, facts_v6, "two_others_inside", "multi_verified",
+                                 budget=budget)
+                    if c.decision == "event" and video_path is not None:
+                        dense.append(self._dense_multi(c, n, video_path, info, job_dir, deadline_monotonic, budget))
         self.last_trace = rm.trace(timeline, cands)
+        if budget:
+            self.last_trace["budget"] = budget.trace()
+            self.last_trace["dense"] = dense
         unknown = sum(1 for x in timeline
                       if "unknown" in (x.v.get("cashier_at_workplace"), x.v.get("client_at_counter")))
         cashier_unknown = sum(1 for x in timeline if x.v.get("cashier_at_workplace") == "unknown")
@@ -324,16 +403,24 @@ class Analyzer:
         chosen = sorted((c for c in cands if c.decision == "event" and c.type_id in self.rules),
                         key=lambda c: c.interval[0].pts_sec)
         events = []
+        annotated = 0
         for n, c in enumerate(chosen, start=1):
             rule = self.rules[c.type_id]
             ev = [by_index[f.index] for f in c.evidence]
             pts = [f.pts_sec for f in ev] + [c.interval[0].pts_sec, c.interval[-1].pts_sec]
+            paths = [f.evidence_path for f in ev]
+            if c.type_id == rules_v6.TYPE_MULTI01 and ANNOTATE_EVIDENCE and ev:
+                mid = len(ev) // 2
+                boxed = self._annotate(ev[mid], job_dir / "annotated" / f"ev-{n:03d}.jpg", deadline_monotonic, budget)
+                if boxed is not None:
+                    paths[mid] = boxed
+                    annotated += 1
             events.append(Event(
                 event_id=f"ev-{n:03d}", type_id=rule.type_id, type_name_ru=rule.type_name_ru,
                 start_sec=min(pts), end_sec=max(pts), timecode_sec=c.interval[0].pts_sec,
                 observed_fact=rm.describe(c), rule_id=rule.rule_id,
-                evidence=[LocalEvidence(timestamp_sec=f.pts_sec, local_jpeg_path=str(f.evidence_path.resolve()))
-                          for f in ev]))
+                evidence=[LocalEvidence(timestamp_sec=f.pts_sec, local_jpeg_path=str(p.resolve()))
+                          for f, p in zip(ev, paths)]))
         unruled = sum(1 for c in cands if c.decision == "event" and c.type_id not in self.rules)
         limitations = [f"coverage ({self.cfg.prompt_version}): " + ", ".join(sorted(self.rules)),
                        f"sampling step {self.cfg.step_sec:g}s: shorter actions may be missed",
@@ -347,18 +434,31 @@ class Analyzer:
                 limitations.append(f"{n} {label}")
         if any(c.type_id == rules_v2.TYPE_COLLECT02 for c in chosen):
             limitations.append("collection bag damage is not verified from video")
+        if budget and budget.skip_desk_from is not None:
+            limitations.append(f"time budget: desk check skipped from {budget.skip_desk_from:.1f}s; "
+                               "valuables left on the desk are not assessed there")
+        if budget and budget.stride > 1:
+            limitations.append(f"time budget: every {budget.stride}th sampled frame used from "
+                               f"{budget.stride_from:.1f}s")
+        if annotated:
+            limitations.append(f"{annotated} evidence frames show model-drawn boxes around people other than the "
+                               "cashier (visual aid; people are not identified)")
         timings["postprocess"] = (time.monotonic() - t) * 1000
         return self._finish(events, limitations, info, job_dir, deadline_monotonic, timings, t_start)
 
     def _verify_access(self, c, by_index: dict, deadline: float) -> None:
         self._verify(c, by_index, deadline, facts_v4, "other_staff_side", "outsider_verified")
 
-    def _verify(self, c, by_index: dict, deadline: float, pm, key: str, check: str) -> None:
+    def _verify(self, c, by_index: dict, deadline: float, pm, key: str, check: str, budget=None) -> None:
         """Второй запрос по трём кадрам кандидата; событие остаётся только если подтверждены все три."""
         run = c.interval
         picks = sorted({0, len(run) // 2, len(run) - 1})
         frames = [by_index[run[i].index] for i in picks]
         idx = [f.index for f in frames]
+        c.core = tuple(c.core) + (check,)
+        if budget and not budget.fits(len(frames)):
+            c.checks[check] = rules_v2.Check("not_established", idx, "no time left for verification")
+            return
         resp = self.client.chat(pm.verify_parts(frames), pm.verify_schema(idx), max_tokens=200,
                                 timeout=min(self.call_timeout_sec, remaining_seconds(deadline)),
                                 temperature=self.cfg.temperature, top_k=self.cfg.top_k, seed=self.cfg.seed,
@@ -376,7 +476,61 @@ class Analyzer:
         status = "confirmed" if len(yes) == len(idx) else (
             "refuted" if any(e[key] == "no" for e in obj["frames"]) else "not_established")
         c.checks[check] = rules_v2.Check(status, idx)
-        c.core = tuple(c.core) + (check,)
+
+    def _dense_multi(self, c, n: int, video_path: Path, info, job_dir: Path, deadline: float, budget) -> dict:
+        """Кадры через полшага у начала кандидата MULTI-01, тот же вопрос «люди»; запись в trace, в core — по флагу."""
+        step = self.cfg.step_sec / 2
+        a = c.interval[0].pts_sec - self.cfg.step_sec
+        rec = {"start_sec": c.interval[0].pts_sec, "status": "not_established", "frames": [], "longest_run": 0}
+        if budget and not budget.fits(DENSE_MAX):
+            rec["note"] = "no time left"
+        else:
+            try:
+                fr = sample_range(video_path, job_dir / "dense" / f"c{n:02d}", step, info, a,
+                                  a + (DENSE_MAX - 1) * step, DENSE_MAX, DENSE_INDEX_BASE * (n + 1),
+                                  model_height=self.cfg.model_height, ffmpeg=self.ffmpeg,
+                                  timeout=min(DECODE_TIMEOUT_SEC, remaining_seconds(deadline)))
+                rows = facts_v6.PEOPLE.rows(self._ask(fr, deadline, pm=facts_v6.PEOPLE)) \
+                    if len(fr) >= DENSE_MIN_RUN else {}
+            except (DecodeError, InvalidAnalysisResultError) as e:
+                fr, rows, rec["note"] = [], {}, type(e).__name__
+            if rows:
+                hit = [rows[f.index]["others"] == "2+" and rows[f.index]["cashier"] == "yes" for f in fr]
+                rec["longest_run"] = _longest(hit)
+                rec["frames"] = [[f.index, round(f.pts_sec, 3), rows[f.index]["cashier"], rows[f.index]["others"]]
+                                 for f in fr]
+                rec["status"] = ("confirmed" if rec["longest_run"] >= DENSE_MIN_RUN else
+                                 "refuted" if not any(r["others"] == "2+" for r in rows.values()) else
+                                 "not_established")
+        if MULTI_DENSE_IN_CORE:
+            c.checks["multi_dense"] = rules_v2.Check(rec["status"], [x[0] for x in rec["frames"]], rec.get("note", ""))
+            c.core = tuple(c.core) + ("multi_dense",)
+        return rec
+
+    def _annotate(self, frame: Frame, out: Path, deadline: float, budget) -> Path | None:
+        """Рамки людей кроме кассира от модели на копии кадра; любой сбой — исходный кадр без рамок."""
+        if budget and not budget.fits(1):
+            return None
+        try:
+            left = remaining_seconds(deadline)
+            if left < 5.0:
+                return None
+            resp = self.client.chat(facts_v6.box_parts(frame), facts_v6.box_schema(), max_tokens=200,
+                                    timeout=min(self.call_timeout_sec, left - 3.0),
+                                    temperature=self.cfg.temperature, top_k=self.cfg.top_k, seed=self.cfg.seed,
+                                    cache_prompt=self.cfg.cache_prompt,
+                                    **({"extra_body": self.extra_body} if self.extra_body else {}))
+            choice = resp["choices"][0]
+            bx = facts_v6.boxes(json.loads(choice["message"].get("content") or "")) \
+                if choice.get("finish_reason") == "stop" else None
+            if not bx or len(bx) < 2:
+                return None
+            out.parent.mkdir(parents=True, exist_ok=True)
+            annotate_boxes(frame.evidence_path, out, bx, facts_v6.BOX_GRID, ffmpeg=self.ffmpeg,
+                           timeout=min(30.0, remaining_seconds(deadline) - 1.0))
+            return out
+        except (AnalysisError, ValueError, TypeError, KeyError, OSError):
+            return None
 
     def _finish(self, events, limitations, info, job_dir: Path, deadline_monotonic: float,
                 timings: dict[str, float], t_start: float) -> AnalysisResult:
