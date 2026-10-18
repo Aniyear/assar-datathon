@@ -137,7 +137,7 @@ def main() -> int:
         for r in orig:
             if r["source_label"] != POS:
                 continue
-            t = types.get(split_id(r["id"])[0])
+            t = types.get(split_id(r["id"])[0]) or None
             if t is None:
                 kind = "type_unknown"
             else:
