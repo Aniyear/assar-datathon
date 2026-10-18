@@ -154,6 +154,8 @@ def validate_tunnel(path: Path) -> None:
 
 
 def start(args, state_dir: Path) -> int:
+    if args.mode == "production" and getattr(args, "ngrok", None) and not getattr(args, "publish", False):
+        raise ValueError("Production ngrok requires explicit --publish")
     report = preflight(args)
     state_dir.mkdir(parents=True, exist_ok=True)
     if not report["ready"]:
@@ -242,7 +244,7 @@ def start(args, state_dir: Path) -> int:
                             if ngrok_reader:
                                 ngrok_reader.join(timeout=1)
                             state["tunnel_error_codes"] = ngrok_facts.get("error_codes", [])
-                            raise RuntimeError("test tunnel exited")
+                            raise RuntimeError("owned tunnel exited")
                         if not state["public_url"]:
                             if ngrok_binary:
                                 public_url = ngrok_facts.get("public_url")
@@ -252,7 +254,9 @@ def start(args, state_dir: Path) -> int:
                                 public_url = match.group(0) if match else None
                             if public_url:
                                 state["public_url"] = public_url
-                                print(f"ТЕСТОВЫЙ HTTPS: {state['public_url']} (без inference/загрузки)", flush=True)
+                                label = ("ТЕСТОВЫЙ HTTPS (без inference/загрузки)" if args.mode == "network-test"
+                                         else "PRODUCTION HTTPS")
+                                print(f"{label}: {state['public_url']}", flush=True)
                             elif time.time() - state["tunnel_started_at"] > 60:
                                 raise RuntimeError("no tunnel URL after 60 seconds")
                     state["heartbeat"] = time.time()
@@ -333,10 +337,15 @@ def main(argv=None) -> int:
     parser.add_argument("--model-config", type=Path, default=ROOT / "configs/model.yaml")
     tunnels = parser.add_mutually_exclusive_group()
     tunnels.add_argument("--tunnel", type=Path, help="Pinned cloudflared binary; network-test ONLY")
-    tunnels.add_argument("--ngrok", type=Path, help="Pinned ngrok binary; network-test ONLY")
+    tunnels.add_argument("--ngrok", type=Path, help="Pinned ngrok binary; production additionally requires --publish")
+    parser.add_argument("--publish", action="store_true", help="Explicitly publish a ready production service via ngrok")
     args = parser.parse_args(argv)
-    if (args.tunnel or args.ngrok) and args.mode != "network-test":
-        parser.error("--tunnel/--ngrok разрешены только для network-test; публикация production — отдельный шаг")
+    if args.tunnel and args.mode != "network-test":
+        parser.error("--tunnel разрешён только для network-test")
+    if args.publish and (args.action != "start" or args.mode != "production" or not args.ngrok):
+        parser.error("--publish требует start --mode production --ngrok")
+    if args.ngrok and args.mode == "production" and not args.publish:
+        parser.error("Production ngrok требует отдельного явного --publish; readiness остаётся обязательной")
     if not 1 <= args.port <= 65535:
         parser.error("--port must be between 1 and 65535")
     args.runtime_root, args.model_config = args.runtime_root.resolve(), args.model_config.resolve()

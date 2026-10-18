@@ -1,4 +1,7 @@
-"""Pinned TEST-ONLY ngrok support; raw agent output and tokens are never persisted."""
+"""Pinned ngrok support; production requires explicit --publish and readiness in service.py.
+
+Raw agent output and tokens are never persisted to logs.
+"""
 from __future__ import annotations
 
 import hashlib

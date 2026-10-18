@@ -72,6 +72,48 @@ def test_tunnel_cannot_publish_production(capsys):
     assert "network-test" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("args", [
+    ["start", "--publish"],
+    ["check", "--ngrok", "fake.exe", "--publish"],
+    ["start", "--mode", "network-test", "--ngrok", "fake.exe", "--publish"],
+    ["start", "--ngrok", "fake.exe"],
+])
+def test_publication_requires_explicit_production_start(args, monkeypatch):
+    monkeypatch.setattr(service, "start", lambda *args: pytest.fail("must not start"))
+    with pytest.raises(SystemExit) as exc:
+        service.main(args)
+    assert exc.value.code == 2
+
+
+def test_explicit_publication_dispatch_keeps_production_mode(monkeypatch, tmp_path):
+    calls = []
+    def record(args, state_dir):
+        calls.append((args.mode, args.publish, args.ngrok, args.model_config, state_dir))
+        return 0
+    monkeypatch.setattr(service, "start", record)
+    assert service.main(["start", "--ngrok", str(tmp_path / "ngrok.exe"), "--publish",
+                         "--model-config", str(tmp_path / "model.json")]) == 0
+    assert calls == [("production", True, (tmp_path / "ngrok.exe").resolve(),
+                      (tmp_path / "model.json").resolve(), service.ROOT / "outputs/service/production")]
+
+
+def test_publish_flag_never_bypasses_readiness_or_imports_auth(tmp_path, monkeypatch):
+    from scripts import ngrok_support
+    monkeypatch.setattr(service, "preflight", lambda _: {"ready": False, "problems": ["synthetic blocked"],
+                                                       "runtime_hashes_checked": False})
+    monkeypatch.setattr(ngrok_support, "import_official_auth", lambda *args: pytest.fail("must not read auth"))
+    args = argparse.Namespace(mode="production", publish=True, ngrok=tmp_path / "ngrok.exe")
+    assert service.start(args, tmp_path) == 2
+    assert not service.key_file(tmp_path).exists()
+    assert not (tmp_path / "state.json").exists()
+
+
+def test_direct_start_also_requires_publish_flag(tmp_path, monkeypatch):
+    monkeypatch.setattr(service, "preflight", lambda _: pytest.fail("must not enter startup"))
+    with pytest.raises(ValueError, match="explicit --publish"):
+        service.start(argparse.Namespace(mode="production", ngrok=tmp_path / "ngrok.exe"), tmp_path)
+
+
 def test_unverified_tunnel_binary_rejected(tmp_path):
     binary = tmp_path / "fake.exe"
     binary.write_bytes(b"synthetic")
