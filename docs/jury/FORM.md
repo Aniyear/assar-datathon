@@ -11,7 +11,7 @@
 | API URL | `https://rearview-vaporizer-celestial.ngrok-free.dev/api/v1/analyze` | Это endpoint загрузки POST; проверить публичный API перед отправкой |
 | API Key | Действующий ключ production из локального защищённого файла | Вставить непосредственно в предназначенное поле формы; не в Git, URL или переписку с AI |
 | Presentation | Финальная презентация в формате/по ссылке, которые принимает форма | По подтверждению пользователя готовит Омар; финальная готовность и доступность ещё не подтверждены |
-| Дополнительные материалы / Git | `https://github.com/Aniyear/assar-datathon/tree/codex/integration-cpu` и полный принятый commit | Репозиторий должен открываться без входа в GitHub |
+| Дополнительные материалы / Git | `https://github.com/Aniyear/assar-datathon/tree/main` и полный принятый commit | Репозиторий должен открываться без входа в GitHub |
 
 Polling: `GET https://rearview-vaporizer-celestial.ngrok-free.dev/api/v1/jobs/{job_id}`.
 Оба API-метода требуют `X-API-Key`. Если подсказка поля формы требует базовый API URL,
