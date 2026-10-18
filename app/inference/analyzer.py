@@ -39,7 +39,8 @@ MAX_STRIDE = 3
 DENSE_MAX = 10
 DENSE_MIN_RUN = 3
 DENSE_INDEX_BASE = 100_000
-MULTI_DENSE_IN_CORE = False  # True — событие требует согласия плотной перепроверки (по замеру на train)
+DENSE_CHECK = False  # замер train+dev: в core теряет 2 TP ради 1 FP — выключено, вызов не делается
+MULTI_DENSE_IN_CORE = False  # True — событие требует согласия плотной перепроверки
 ANNOTATE_EVIDENCE = True     # рамки людей кроме кассира на среднем доказательном кадре MULTI-01
 
 
@@ -387,7 +388,7 @@ class Analyzer:
                 if c.type_id == rules_v6.TYPE_MULTI01 and c.decision == "event":
                     self._verify(c, by_index, deadline_monotonic, facts_v6, "two_others_inside", "multi_verified",
                                  budget=budget)
-                    if c.decision == "event" and video_path is not None:
+                    if DENSE_CHECK and c.decision == "event" and video_path is not None:
                         dense.append(self._dense_multi(c, n, video_path, info, job_dir, deadline_monotonic, budget))
         self.last_trace = rm.trace(timeline, cands)
         if budget:

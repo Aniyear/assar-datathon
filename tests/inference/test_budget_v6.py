@@ -17,6 +17,11 @@ ROOT = Path(__file__).resolve().parents[2]
 needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not in PATH")
 
 
+@pytest.fixture(autouse=True)
+def _dense_on(monkeypatch):
+    monkeypatch.setattr(an, "DENSE_CHECK", True)  # выключено в production; здесь проверяется сама логика
+
+
 def _video(tmp_path, duration=25):
     video = tmp_path / "input.mov"
     subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", f"testsrc=size=160x284:rate=30:duration={duration}",
