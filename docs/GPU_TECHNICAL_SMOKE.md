@@ -1,7 +1,7 @@
 # Технический GPU-прогон: инструкция и последующее состояние
 
 **Дополнение 17.10.2026:** по отдельному разрешению выполнен один прогон на
-`b1715e38cecd70b2fea7395594c59c30df0bc25e`, `call_timeout_sec=17`.
+`05ba3a68bf74b86003375151b51d486c5d89b7b0`, `call_timeout_sec=17`.
 Квитанция: `outputs/gpu-smoke/20261017-195607-8febcf/receipt.json`.
 Проверки связки, reuse, finish_reason, deadline/recovery/cleanup пройдены;
 обычные jobs завершились failed/UnassessableVideoError, поэтому реальный done/JPEG

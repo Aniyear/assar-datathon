@@ -8,9 +8,9 @@
 
 ## Что уже известно и чего ждём
 
-- Принят CPU-результат b1715e3: 213 passed, integration --runxfail 16 passed,
+- Принят CPU-результат 05ba3a6: 213 passed, integration --runxfail 16 passed,
   без skip/xfail. Этот suite в проходе подготовки документации не повторяется.
-- Технический GPU-стенд b1715e3 завершён с настоящими llama-server/service/
+- Технический GPU-стенд 05ba3a6 завершён с настоящими llama-server/service/
   supervisor/HTTP API. На синтетике проверены reuse, finish_reason=stop,
   deadline/recovery и остановка принадлежащих стенду процессов. Обычные задания
   закончились `failed/UnassessableVideoError`, поэтому **реальные done и JPEG

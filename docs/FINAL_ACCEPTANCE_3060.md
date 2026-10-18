@@ -1,13 +1,13 @@
 # Финальная приёмка 4B/v6 на RTX 3060 — 18.10.2026
 
-> Историческая первая приёмка 1bafd15 сохранена без пересчёта. Текущий результат
-> после handoff 6ca5e5b — [новая квитанция и отчёт](ACCEPTANCE_6CA5_3060.md).
+> Историческая первая приёмка f4ea4de сохранена без пересчёта. Текущий результат
+> после handoff bed499b — [новая квитанция и отчёт](ACCEPTANCE_6CA5_3060.md).
 
 ## Основа и изменения
 
 Существующая `codex/integration-cpu`, база продукта
-`144e97836d55b28f9aa138f59f52f4471207d5ef`; принят ровно ML
-`8311a626f85d650dfa7d78a40f96fd1b4d5947b7`. Продуктовый frontend не изменён.
+`469648c84a8484f08e085f880fcfa6476ba8ac75`; принят ровно ML
+`f9f26cbb73b5835cd71b6b3e4b9a8ef2ba7b3646`. Продуктовый frontend не изменён.
 Merge сохраняет историю обеих сторон. Экспериментальные модули входят в историю
 переданного handoff, но production использует только выбранный v6; эксперименты
 не запускались и новые модели не подбирались.
@@ -230,7 +230,7 @@ p.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding='utf-8')
 # Contract 0.1: 5 synthetic fixtures valid; verified rules: 2.
 git diff --check
 # без ошибок
-git diff --quiet 144e97836d55b28f9aa138f59f52f4471207d5ef -- app/web
+git diff --quiet 469648c84a8484f08e085f880fcfa6476ba8ac75 -- app/web
 # exit 0: принятый frontend сохранён
 ```
 

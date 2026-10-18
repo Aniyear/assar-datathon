@@ -1,7 +1,7 @@
 # Проверка дополнения стартовой основы — 17.10.2026
 
-Ветка: codex/bootstrap; предыдущая основа b4c2d19fb995490abd3a6a79ddcd33e260377b76.
-ML-источник: c32964a318d47a0ce7648a697044b48c2e40c40a, base 08682a5.
+Ветка: codex/bootstrap; предыдущая основа fe5305a739accd0704530807ab0b5ccd0bf21a4f.
+ML-источник: ca336d8c7caa8a7191eea6dd4aeba244f0799191, base c9f8dda.
 Чтение только git show, без переключения checkout, merge или выполнения ML-кода.
 
 Фактически изменены общие contracts/settings, конфигурация модели с provenance,

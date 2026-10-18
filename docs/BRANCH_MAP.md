@@ -16,8 +16,8 @@
 сопоставляются через [карту коммитов](history/commit-map.json).
 
 
-> Обновление 18.10.2026: точный ML `6ca5e5bd21b9883d13a822bf58d06bc231220583`
-> включён в существующую интеграцию поверх интерфейса `144e978`.
+> Обновление 18.10.2026: точный ML `bed499b8c15365981571bb2215097b28c46adc4f`
+> включён в существующую интеграцию поверх интерфейса `469648c`.
 > Выбрана переданная 4B Q4_K_M/v6, приняты только MULTI-01/CASH-03 с оговорками.
 > Текущее решение о готовности и оставшиеся блокеры — [финальная приёмка](ACCEPTANCE_6CA5_3060.md).
 > Ниже сохранён предыдущий снимок; ожидание ML-handoff, пустого каталога и реального
@@ -25,8 +25,8 @@
 
 Снимок после `git fetch origin 'refs/heads/*:refs/remotes/origin/*'` и сверки
 `git ls-remote --heads origin`. Начальный HEAD продукта:
-`e0867a16a6554495baf065017f6ed91e68a794d1`. Во время аудита ML продвинулся;
-дополнительный fetch только ML зафиксировал `f8ccee2` ниже. Это снимок, не обещание
+`091f5dc31b5c50125782ad7bea760d8ac6bfd425`. Во время аудита ML продвинулся;
+дополнительный fetch только ML зафиксировал `bd975c8` ниже. Это снимок, не обещание
 неизменности активной ветки Омара.
 
 **Основная сборка — `codex/integration-cpu`. Единственная параллельная активная
@@ -41,29 +41,29 @@
 
 | Ветка / handoff | Точный commit | Решение |
 |---|---|---|
-| codex/bootstrap | `5c748f9c94c8cd7b32aae04a5c8b49a0c79491d8` | Уже включён |
-| codex/backend | `75ad2f7fe5325b7374cf05acef262694d372941d` | Уже включён вместе с предшественниками; новых remote-коммитов нет |
-| codex/frontend | `6b0d09d892ab51a4d8ef64a111605fd44639b897` | Уже включён; новых remote-коммитов дизайна нет |
-| Принятый ML | `5c61ccc3ef8976ba38d1cbc63f056516c46216fe` | Остаётся ML-базой продукта |
-| codex/finish-plans | `8f078166da46e05af6037e0eb9836e01943996ed` | Проверены и включены три документа 01/02/03; роли уточнены по последнему решению пользователя |
-| main | `08682a5837ea2fe4680c7a88dbc54c993314fccd` | Не менялся; это прежняя стартовая версия, не текущий продукт |
+| codex/bootstrap | `79830a3c067d89fc4f7387fb96ba48460bb53f3a` | Уже включён |
+| codex/backend | `7c343939abbe12519fa14d44650fda9fc03686ce` | Уже включён вместе с предшественниками; новых remote-коммитов нет |
+| codex/frontend | `ef31b351bcec701e6b66e4229954e43b9770cc2e` | Уже включён; новых remote-коммитов дизайна нет |
+| Принятый ML | `e083f79625f13b2bc516ec2a55cc0a052205d205` | Остаётся ML-базой продукта |
+| codex/finish-plans | `730c6c4be605f321a7bd7d499461464a02967fce` | Проверены и включены три документа 01/02/03; роли уточнены по последнему решению пользователя |
+| main | `c9f8ddac82b6ebb832e00a50b64d756c0f8eac97` | Не менялся; это прежняя стартовая версия, не текущий продукт |
 
-Bootstrap-data локально также указывает на `08682a5`; ветки с таким именем в
+Bootstrap-data локально также указывает на `c9f8dda`; ветки с таким именем в
 полученном списке heads GitHub нет. Backend/bootstrap/frontend/finish-plans теперь
 служат сохранёнными точками передачи, а не параллельными областями новой разработки.
 
 ## ML рассматривается отдельно
 
 Последний полученный `origin/codex/ml`:
-`f8ccee2ad4a90c8559b6be79466c0243965179f7`. Сверх принятого `5c61ccc`:
+`bd975c88744a4188d55394620704165b1eeb1a20`. Сверх принятого `e083f79`:
 
 | Commit | Назначение | Состояние в продукте |
 |---|---|---|
-| `42a314ff2a6e48cd20b7f06c6ebb3c621baba6ec` | Отдельный эксперимент 2B/4B, также head codex/experiment-2b4b-3060 | Не включён |
-| `180e1b0` | Режим CASH-01 facts/conditions и dev_eval | Не включён, ждёт handoff |
-| `dd018ed` | Структурированные условия, multi-model dev_eval, human review и proposals | Не включён, ждёт handoff |
-| `a488552` | SHA256-проверяемый dev list, дедупликация и подготовка сервера | Не включён |
-| `f8ccee2` | Локальный discover вокруг label timecodes, доработка dev list и runbook для сервера | Не включён |
+| `c50544ee75fbeef7311f6addeb0fe36f5b536940` | Отдельный эксперимент 2B/4B, также head codex/experiment-2b4b-3060 | Не включён |
+| `42100bd` | Режим CASH-01 facts/conditions и dev_eval | Не включён, ждёт handoff |
+| `c060ef2` | Структурированные условия, multi-model dev_eval, human review и proposals | Не включён, ждёт handoff |
+| `2a26c2a` | SHA256-проверяемый dev list, дедупликация и подготовка сервера | Не включён |
+| `bd975c8` | Локальный discover вокруг label timecodes, доработка dev list и runbook для сервера | Не включён |
 
 Это не только новые экспериментальные скрипты: меняются `analyzer.py` и `vlm.py`,
 добавляются `conditions.py`/`facts_prompt.py`, предложения config/catalog.
@@ -84,13 +84,13 @@ Bootstrap-data локально также указывает на `08682a5`; в
 
 | Папка относительно корня | Ветка / HEAD | Состояние на входе аудита |
 |---|---|---|
-| `.` | codex/bootstrap / 5c748f9 | Untracked: app/web/{index.html,styles.css,app.js}; docs/01_CURRENT_STATE_AND_FINISH_PLAN.md, 02_OMAR_MODEL_AND_QUALITY.md, 03_ANIYAR_SERVICE_AND_RELEASE.md |
-| `.worktrees/data-split` | codex/bootstrap-data / 08682a5 | Untracked: docs/DATA_SPLIT.md, docs/data_split_receipt.json, tests/eval/test_freeze_split.py |
-| `.worktrees/finish-plans` | codex/finish-plans / 8f07816 | Чисто |
-| `.worktrees/frontend` | codex/frontend / 6b0d09d | Чисто |
-| `.worktrees/integration-cpu` | codex/integration-cpu / e0867a1 | На входе чисто; изменения этого аудита фиксируются здесь |
-| `.worktrees/ml-portability-3060` | codex/ml-portability-3060 / a6d5b6a | Чисто по tracked/untracked; отдельный clone, не зарегистрированный worktree общего Git |
-| `.worktrees/ml-2b4b-experiment` | codex/experiment-2b4b-3060 / 42a314f | Чисто по tracked/untracked; отдельный clone |
+| `.` | codex/bootstrap / 79830a3 | Untracked: app/web/{index.html,styles.css,app.js}; docs/01_CURRENT_STATE_AND_FINISH_PLAN.md, 02_OMAR_MODEL_AND_QUALITY.md, 03_ANIYAR_SERVICE_AND_RELEASE.md |
+| `.worktrees/data-split` | codex/bootstrap-data / c9f8dda | Untracked: docs/DATA_SPLIT.md, docs/data_split_receipt.json, tests/eval/test_freeze_split.py |
+| `.worktrees/finish-plans` | codex/finish-plans / 730c6c4 | Чисто |
+| `.worktrees/frontend` | codex/frontend / ef31b35 | Чисто |
+| `.worktrees/integration-cpu` | codex/integration-cpu / 091f5dc | На входе чисто; изменения этого аудита фиксируются здесь |
+| `.worktrees/ml-portability-3060` | codex/ml-portability-3060 / 282b863 | Чисто по tracked/untracked; отдельный clone, не зарегистрированный worktree общего Git |
+| `.worktrees/ml-2b4b-experiment` | codex/experiment-2b4b-3060 / c50544e | Чисто по tracked/untracked; отдельный clone |
 
 Три untracked плана в исходной папке побайтово совпадают с finish-plans после
 нормализации CRLF/LF. В data-split тест и receipt совпадают с интеграцией;
