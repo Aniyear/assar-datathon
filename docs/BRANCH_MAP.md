@@ -62,8 +62,8 @@ Bootstrap-data локально также указывает на `08682a5`; в
 | `42a314ff2a6e48cd20b7f06c6ebb3c621baba6ec` | Отдельный эксперимент 2B/4B, также head codex/experiment-2b4b-3060 | Не включён |
 | `180e1b0` | Режим CASH-01 facts/conditions и dev_eval | Не включён, ждёт handoff |
 | `dd018ed` | Структурированные условия, multi-model dev_eval, human review и proposals | Не включён, ждёт handoff |
-| `a488552` | SHA256-проверяемый dev list, дедупликация и подготовка сервер | Не включён |
-| `f8ccee2` | Локальный discover вокруг label timecodes, доработка dev list/сервер runbook | Не включён |
+| `a488552` | SHA256-проверяемый dev list, дедупликация и подготовка сервера | Не включён |
+| `f8ccee2` | Локальный discover вокруг label timecodes, доработка dev list и runbook для сервера | Не включён |
 
 Это не только новые экспериментальные скрипты: меняются `analyzer.py` и `vlm.py`,
 добавляются `conditions.py`/`facts_prompt.py`, предложения config/catalog.
