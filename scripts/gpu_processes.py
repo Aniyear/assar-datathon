@@ -31,6 +31,7 @@ def process_inventory(xml_text: str) -> dict[str, list[int]]:
         "systemapps\\microsoft.windows.startmenuexperiencehost_*\\startmenuexperiencehost.exe",
         "systemapps\\shellexperiencehost_*\\shellexperiencehost.exe")]
     patterns += [programs + "\\windowsapps\\" + p for p in (
+        "microsoft.windowsterminal_*__8wekyb3d8bbwe\\windowsterminal.exe",
         "microsoft.yourphone_*\\phoneexperiencehost.exe", "a-volute.nahimic_*\\nahimic3.exe",
         "openai.codex_*\\app\\chatgpt.exe", "telegrammessengerllp.telegramdesktop_*\\telegram.exe",
         "microsoft.screensketch_*\\snippingtool\\snippingtool.exe")]

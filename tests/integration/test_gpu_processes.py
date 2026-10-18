@@ -31,6 +31,19 @@ def test_pure_compute_is_never_exempt_even_at_gui_path(monkeypatch):
     assert process_inventory(xml((1, "C", r"C:\Windows\explorer.exe")))["compute_pids"] == [1]
 
 
+def test_windows_terminal_does_not_mask_model_processes(monkeypatch):
+    monkeypatch.setenv("ProgramFiles", r"C:\Program Files")
+    terminal = (r"C:\Program Files\WindowsApps"
+                r"\Microsoft.WindowsTerminal_1.24.12741.0_x64__8wekyb3d8bbwe"
+                r"\WindowsTerminal.exe")
+    result = process_inventory(xml(
+        (1, "C+G", terminal), (2, "C", terminal),
+        (3, "C+G", r"C:\unknown\WindowsTerminal.exe"),
+        (4, "C+G", r"C:\Python\python.exe"),
+        (5, "C+G", r"C:\models\llama-server.exe")))
+    assert result == {"compute_pids": [2, 3, 4, 5], "background_graphics_pids": [1]}
+
+
 @pytest.mark.parametrize("data", ["<broken", "<nvidia_smi_log/>", xml(("bad", "C", "python"))])
 def test_missing_or_malformed_inventory_is_not_idle(data):
     with pytest.raises((ValueError, ET.ParseError)):
