@@ -158,10 +158,58 @@ def compare(per: dict[str, dict], meta: dict[str, dict]) -> dict:
     return out
 
 
+def added_value(features_by_id: dict, meta: dict, v6: dict[str, str], max_fp: int = 0) -> list[dict]:
+    """Правило «признак ≥ порога → violation» поверх вердикта v6: порог выбирается по train (больше новых TP при
+    ≤ max_fp новых FP на эталонах train), затем то же правило считается на dev. Бинарный вердикт: тип не важен."""
+    keys = sorted({k for f in features_by_id.values() for k in f if not k.startswith("frames")})
+    out = []
+    for k in keys:
+        best = None
+        for thr in sorted({f[k] for f in features_by_id.values() if f and f[k] > 0}):
+            new = {"train": {"tp": 0, "fp": 0}, "dev": {"tp": 0, "fp": 0}}
+            for vid, f in features_by_id.items():
+                m = meta[vid]
+                role = "train" if m["role"] == "train" else "dev"
+                if not f or f[k] < thr or v6.get(vid) == "violation":
+                    continue
+                new[role]["tp" if m["label"] == "violation" else "fp"] += 1
+            if new["train"]["fp"] <= max_fp and (best is None or new["train"]["tp"] > best["train"]["tp"]):
+                best = {"feature": k, "threshold": thr, **new}
+        if best and best["train"]["tp"]:
+            out.append(best)
+    return sorted(out, key=lambda r: (-r["train"]["tp"], r["train"]["fp"]))
+
+
+def analyze(path: Path, results: list[Path]) -> int:
+    d = json.loads(path.read_text(encoding="utf-8"))
+    v6 = {r["id"]: r["outcome"] for p in results for r in json.loads(p.read_text(encoding="utf-8"))}
+    base = {"train": {"tp": 0, "fp": 0}, "dev": {"tp": 0, "fp": 0}}
+    for vid, m in d["meta"].items():
+        if v6.get(vid) == "violation":
+            base["train" if m["role"] == "train" else "dev"]["tp" if m["label"] == "violation" else "fp"] += 1
+    pos = {r: sum(1 for m in d["meta"].values() if (m["role"] == "train") == (r == "train") and m["label"] == "violation")
+           for r in ("train", "dev")}
+    neg = {r: sum(1 for m in d["meta"].values() if (m["role"] == "train") == (r == "train") and m["label"] != "violation")
+           for r in ("train", "dev")}
+    print(f"v6 alone: train TP {base['train']['tp']}/{pos['train']} FP {base['train']['fp']}/{neg['train']}; "
+          f"dev TP {base['dev']['tp']}/{pos['dev']} FP {base['dev']['fp']}/{neg['dev']}")
+    for max_fp in (0, 1):
+        print(f"-- added rule, threshold chosen on train with <= {max_fp} new FP:")
+        rows = added_value(d["features"], d["meta"], v6, max_fp)
+        for r in rows[:8]:
+            print(f"{r['feature']} >= {r['threshold']}: train +TP {r['train']['tp']} +FP {r['train']['fp']}; "
+                  f"dev +TP {r['dev']['tp']} +FP {r['dev']['fp']}")
+        if not rows:
+            print("none")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--videos", type=Path, nargs="+", required=True)
-    ap.add_argument("--types", type=Path, required=True)
+    ap.add_argument("--analyze", type=Path, help="ground.local.json: только пересчёт пользы признаков поверх v6")
+    ap.add_argument("--results", type=Path, nargs="*", default=[], help="results.json прогонов v6 (train, dev)")
+    ap.add_argument("--videos", type=Path, nargs="+")
+    ap.add_argument("--types", type=Path)
     ap.add_argument("--out", type=Path, default=Path("outputs/ground"))
     ap.add_argument("--variant", default="4b-q4km")
     ap.add_argument("--endpoint")
@@ -171,6 +219,10 @@ def main() -> int:
     ap.add_argument("--max-frames", type=int, default=10)
     ap.add_argument("--image-max-tokens", type=int, default=256, help="как в production; больше — дороже на 3060")
     args = ap.parse_args()
+    if args.analyze:
+        return analyze(args.analyze, args.results)
+    if not args.videos or not args.types:
+        ap.error("--videos and --types are required unless --analyze")
     videos = [v for p in args.videos for v in load_videos(p)]
     types = {r["id"]: (r.get("type_id") or "").strip() for r in csv.DictReader(args.types.open(encoding="utf-8-sig"))}
     args.out.mkdir(parents=True, exist_ok=True)
