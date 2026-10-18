@@ -57,3 +57,35 @@ def merge(objs: list[dict], idx: list[int]) -> list[dict]:
     people, desk = PEOPLE.rows(objs[0]), DESK.rows(objs[1])
     return [{"index": i, "cashier_at_workplace": people[i]["cashier"], "others_count": people[i]["others"],
              "desk_valuables": desk[i]["desk_valuables"]} for i in idx]
+
+
+# Второй шаг для MULTI-01: по трём кадрам кандидата (все три «yes» — подтверждено).
+VERIFY_MULTI = (
+    "Each frame shows a bank cash office from a fixed overhead camera. The cashier is the employee at the staff side "
+    "of the desk. For EACH frame answer yes, no or unknown: are there at least TWO people OTHER than the cashier "
+    "INSIDE the room at the same time (for example two clients at the desk)? People outside behind a glass door, a "
+    "window or a wall do NOT count. The cashier does NOT count.")
+
+
+def verify_parts(frames) -> list[str | Path]:
+    parts: list[str | Path] = [VERIFY_MULTI]
+    for f in frames:
+        parts += [f"Frame {f.index}, t={f.pts_sec:.1f}s:", f.model_path]
+    return parts + ["Answer in JSON."]
+
+
+def verify_schema(frame_indices: list[int]) -> dict:
+    n = len(frame_indices)
+    item = {"type": "object", "properties": {"index": {"type": "integer", "enum": frame_indices},
+                                             "two_others_inside": {"type": "string", "enum": ["yes", "no", "unknown"]}},
+            "required": ["index", "two_others_inside"]}
+    return {"type": "object", "properties": {"frames": {"type": "array", "minItems": n, "maxItems": n,
+                                                        "items": item}}, "required": ["frames"]}
+
+
+def verify_validate(obj, frame_indices: list[int]) -> bool:
+    if not isinstance(obj, dict) or not isinstance(obj.get("frames"), list):
+        return False
+    seen = [e.get("index") for e in obj["frames"]
+            if isinstance(e, dict) and e.get("two_others_inside") in ("yes", "no", "unknown")]
+    return sorted(seen) == sorted(frame_indices)

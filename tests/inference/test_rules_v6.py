@@ -76,3 +76,36 @@ def test_v6_through_analyzer(tmp_path):
     assert res.events[0].timecode_sec == 20.0
     validate_analysis_for_video(res, 25.0, job)
     validate_analysis_rules(res, cat)
+
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not in PATH")
+@pytest.mark.parametrize("answers,expect", [(["yes", "yes", "yes"], "violation"), (["yes", "no", "yes"], "no_violation")])
+def test_v6_multi_verification(tmp_path, answers, expect):
+    video = tmp_path / "input.mov"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc=size=160x284:rate=30:duration=25",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-y", str(video)], check=True)
+    cfg = dataclasses.replace(load_model_config(ROOT / "configs/model.yaml"), prompt_version=facts_v6.PROMPT_VERSION,
+                              max_tokens=500)
+    cat = catalog(synthetic_rule(type_id=rules_v6.TYPE_MULTI01, rule_id="M1"))
+    n = {"k": 0}
+
+    def r(idx):
+        if len(idx) == 3 and 5 <= idx[0] and idx[-1] <= 9:  # запрос проверки
+            return 200, json.dumps({"frames": [{"index": i, "two_others_inside": a} for i, a in zip(idx, answers)]}), "stop"
+        k = n["k"] % 2
+        n["k"] += 1
+        if k == 0:
+            body = {"frames": [{"index": i, "cashier": "yes", "others": "2+" if 5 <= i <= 9 else "1"} for i in idx]}
+        else:
+            body = {"frames": [{"index": i, "desk_valuables": "no"} for i in idx]}
+        return 200, json.dumps(body), "stop"
+    srv = FakeLlama(r)
+    try:
+        job = tmp_path / "job"
+        job.mkdir()
+        a = Analyzer(cfg, cat, LlamaClient(srv.url), call_timeout_sec=10)
+        res = a.analyze_video(video, job, time.monotonic() + 60)
+    finally:
+        srv.close()
+    assert res.verdict == expect

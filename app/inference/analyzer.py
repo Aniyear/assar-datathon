@@ -309,6 +309,10 @@ class Analyzer:
             for c in cands:
                 if c.type_id == rules_v4.TYPE_ACCESS01 and c.decision == "event":
                     self._verify_access(c, by_index, deadline_monotonic)
+        if rm is rules_v6:
+            for c in cands:
+                if c.type_id == rules_v6.TYPE_MULTI01 and c.decision == "event":
+                    self._verify(c, by_index, deadline_monotonic, facts_v6, "two_others_inside", "multi_verified")
         self.last_trace = rm.trace(timeline, cands)
         unknown = sum(1 for x in timeline
                       if "unknown" in (x.v.get("cashier_at_workplace"), x.v.get("client_at_counter")))
@@ -347,12 +351,15 @@ class Analyzer:
         return self._finish(events, limitations, info, job_dir, deadline_monotonic, timings, t_start)
 
     def _verify_access(self, c, by_index: dict, deadline: float) -> None:
+        self._verify(c, by_index, deadline, facts_v4, "other_staff_side", "outsider_verified")
+
+    def _verify(self, c, by_index: dict, deadline: float, pm, key: str, check: str) -> None:
         """Второй запрос по трём кадрам кандидата; событие остаётся только если подтверждены все три."""
         run = c.interval
         picks = sorted({0, len(run) // 2, len(run) - 1})
         frames = [by_index[run[i].index] for i in picks]
         idx = [f.index for f in frames]
-        resp = self.client.chat(facts_v4.verify_parts(frames), facts_v4.verify_schema(idx), max_tokens=200,
+        resp = self.client.chat(pm.verify_parts(frames), pm.verify_schema(idx), max_tokens=200,
                                 timeout=min(self.call_timeout_sec, remaining_seconds(deadline)),
                                 temperature=self.cfg.temperature, top_k=self.cfg.top_k, seed=self.cfg.seed,
                                 cache_prompt=self.cfg.cache_prompt,
@@ -363,13 +370,13 @@ class Analyzer:
             obj = json.loads(choice["message"].get("content") or "")
         except (ValueError, TypeError):
             obj = None
-        if choice.get("finish_reason") != "stop" or not facts_v4.verify_validate(obj, idx):
-            raise InvalidAnalysisResultError("access verification output invalid")
-        yes = [e["index"] for e in obj["frames"] if e["other_staff_side"] == "yes"]
+        if choice.get("finish_reason") != "stop" or not pm.verify_validate(obj, idx):
+            raise InvalidAnalysisResultError("verification output invalid")
+        yes = [e["index"] for e in obj["frames"] if e[key] == "yes"]
         status = "confirmed" if len(yes) == len(idx) else (
-            "refuted" if any(e["other_staff_side"] == "no" for e in obj["frames"]) else "not_established")
-        c.checks["outsider_verified"] = rules_v2.Check(status, idx)
-        c.core = tuple(c.core) + ("outsider_verified",)
+            "refuted" if any(e[key] == "no" for e in obj["frames"]) else "not_established")
+        c.checks[check] = rules_v2.Check(status, idx)
+        c.core = tuple(c.core) + (check,)
 
     def _finish(self, events, limitations, info, job_dir: Path, deadline_monotonic: float,
                 timings: dict[str, float], t_start: float) -> AnalysisResult:
