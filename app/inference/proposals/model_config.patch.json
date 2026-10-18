@@ -1,9 +1,9 @@
 {
   "for": "configs/model.yaml (owner: integrator)",
-  "selection": "4B Q4_K_M (fits RTX 3060); prompt cash-events-v4; quality limited — see app/inference/README.md, 'Итоги dev'",
+  "selection": "4B Q4_K_M (fits RTX 3060); prompt cash-specialists-v6 (2 specialists + verification); see app/inference/README.md, 'Финальный кандидат v6'",
   "common_changes": {
-    "generation.prompt_version": "cash-events-v4",
-    "generation.max_tokens": 900
+    "generation.prompt_version": "cash-specialists-v6",
+    "generation.max_tokens": 500
   },
   "option_4b": {
     "model_id": "Qwen/Qwen3-VL-4B-Instruct-GGUF",
