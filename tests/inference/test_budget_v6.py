@@ -123,3 +123,40 @@ def test_box_validation():
     assert facts_v6.boxes({"people": [{"bbox_2d": [1, 2, 3, 1001]}]}) is None
     assert facts_v6.boxes({"people": [{"bbox_2d": [5, 2, 3, 4]}]}) == []
     assert facts_v6.boxes({"x": 1}) is None
+
+
+@needs_ffmpeg
+def test_two_frame_multi_gets_third_real_frame(tmp_path):
+    video = _video(tmp_path)
+    cfg = dataclasses.replace(load_model_config(ROOT / "configs/model.yaml"), prompt_version=facts_v6.PROMPT_VERSION,
+                              max_tokens=500)
+    cat = catalog(synthetic_rule(type_id=rules_v6.TYPE_MULTI01, rule_id="M1"))
+    seen, n = [], {"main": 0}
+
+    def r(idx):
+        if idx and idx[0] >= an.VERIFY_INDEX_BASE:
+            seen.append(idx)
+            return 200, json.dumps({"frames": [{"index": i, "two_others_inside": "yes"} for i in idx]}), "stop"
+        if len(idx) == 1:
+            return 200, json.dumps({"people": []}), "stop"
+        k = n["main"] % 2
+        n["main"] += 1
+        if k == 0:
+            body = {"frames": [{"index": i, "cashier": "yes", "others": "2+" if i in (5, 6) else "1"} for i in idx]}
+        else:
+            body = {"frames": [{"index": i, "desk_valuables": "no"} for i in idx]}
+        return 200, json.dumps(body), "stop"
+    srv = FakeLlama(r)
+    try:
+        job = tmp_path / "job"
+        job.mkdir()
+        a = Analyzer(cfg, cat, LlamaClient(srv.url), call_timeout_sec=10)
+        res = a.analyze_video(video, job, time.monotonic() + 60)
+    finally:
+        srv.close()
+    assert res.verdict == "violation"
+    [idx] = seen
+    assert len(set(idx)) == 3
+    [cand] = [c for c in a.last_trace["candidates"] if c["type_id"] == rules_v6.TYPE_MULTI01]
+    assert cand["checks"]["multi_verified"]["status"] == "confirmed"
+

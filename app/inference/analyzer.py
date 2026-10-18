@@ -39,6 +39,9 @@ MAX_STRIDE = 3
 DENSE_MAX = 10
 DENSE_MIN_RUN = 3
 DENSE_INDEX_BASE = 100_000
+# Кандидат MULTI-01 из двух кадров: третий настоящий кадр декодируется между ними (фактический PTS внутри
+# интервала кандидата), а не повторяется и не заменяется ослабленной проверкой.
+VERIFY_INDEX_BASE = 200_000
 DENSE_CHECK = False  # замер train+dev: в core теряет 2 TP ради 1 FP — выключено, вызов не делается
 MULTI_DENSE_IN_CORE = False  # True — событие требует согласия плотной перепроверки
 ANNOTATE_EVIDENCE = True     # рамки людей кроме кассира на среднем доказательном кадре MULTI-01
@@ -388,7 +391,7 @@ class Analyzer:
             for n, c in enumerate(cands):
                 if c.type_id == rules_v6.TYPE_MULTI01 and c.decision == "event":
                     self._verify(c, by_index, deadline_monotonic, facts_v6, "two_others_inside", "multi_verified",
-                                 budget=budget)
+                                 budget=budget, extra=(n, video_path, info, job_dir))
                     if DENSE_CHECK and c.decision == "event" and video_path is not None:
                         dense.append(self._dense_multi(c, n, video_path, info, job_dir, deadline_monotonic, budget))
         self.last_trace = rm.trace(timeline, cands)
@@ -473,11 +476,14 @@ class Analyzer:
     def _verify_access(self, c, by_index: dict, deadline: float) -> None:
         self._verify(c, by_index, deadline, facts_v4, "other_staff_side", "outsider_verified")
 
-    def _verify(self, c, by_index: dict, deadline: float, pm, key: str, check: str, budget=None) -> None:
+    def _verify(self, c, by_index: dict, deadline: float, pm, key: str, check: str, budget=None,
+                extra=None) -> None:
         """Второй запрос по трём кадрам кандидата; событие остаётся только если подтверждены все три."""
         run = c.interval
         picks = sorted({0, len(run) // 2, len(run) - 1})
         frames = [by_index[run[i].index] for i in picks]
+        if pm is facts_v6 and len(frames) < 3 and extra is not None and extra[1] is not None:
+            frames = self._three_frames(run, *extra, deadline) or frames
         idx = [f.index for f in frames]
         c.core = tuple(c.core) + (check,)
         if pm is facts_v6 and len(idx) < 3:
@@ -503,6 +509,22 @@ class Analyzer:
         status = "confirmed" if len(yes) == len(idx) else (
             "refuted" if any(e[key] == "no" for e in obj["frames"]) else "not_established")
         c.checks[check] = rules_v2.Check(status, idx)
+
+    def _three_frames(self, run, n: int, video_path: Path, info, job_dir: Path, deadline: float) -> list[Frame] | None:
+        """Три различных реальных кадра в [начало, конец] короткого кандидата; None — получить не удалось."""
+        a, b = run[0].pts_sec, run[-1].pts_sec
+        if b <= a:
+            return None
+        try:
+            fr = sample_range(video_path, job_dir / "verify" / f"c{n:02d}", 0.45 * (b - a), info, a, b, 3,
+                              VERIFY_INDEX_BASE + 10 * n, model_height=self.cfg.model_height, ffmpeg=self.ffmpeg,
+                              timeout=min(DECODE_TIMEOUT_SEC, remaining_seconds(deadline)))
+        except DecodeError:
+            return None
+        pts = [f.pts_sec for f in fr]
+        if len(fr) != 3 or len(set(pts)) != 3 or not all(a - 1e-3 <= t <= b + 1e-3 for t in pts):
+            return None
+        return fr
 
     def _dense_multi(self, c, n: int, video_path: Path, info, job_dir: Path, deadline: float, budget) -> dict:
         """Кадры через полшага у начала кандидата MULTI-01, тот же вопрос «люди»; запись в trace, в core — по флагу."""
