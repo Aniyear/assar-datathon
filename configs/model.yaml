@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "status": "acceptance_failed",
-  "source_commit": "8311a626f85d650dfa7d78a40f96fd1b4d5947b7",
+  "status": "ready",
+  "source_commit": "6ca5e5bd21b9883d13a822bf58d06bc231220583",
   "source_files": [
     "app/inference/proposals/model_config.patch.json",
     "app/inference/analyzer.py",

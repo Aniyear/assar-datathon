@@ -1,0 +1,286 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "assar public API",
+    "version": "0.1",
+    "description": "Draft documentation, not a deployment. Supply the approved HTTPS origin. Examples are synthetic. failed is not no_violation. JPEG decoding and verdict/event consistency are checked at runtime."
+  },
+  "security": [
+    {
+      "ApiKey": []
+    }
+  ],
+  "paths": {
+    "/api/v1/analyze": {
+      "post": {
+        "operationId": "analyzeVideo",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "One nonempty MOV, up to 100 MiB by default"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "401": {
+            "description": "Missing or invalid X-API-Key"
+          },
+          "202": {
+            "description": "Accepted; poll this job_id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyzeAccepted"
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "Upload timeout"
+          },
+          "413": {
+            "description": "Upload size limit"
+          },
+          "415": {
+            "description": "Expected multipart MOV"
+          },
+          "422": {
+            "description": "Malformed, empty or undecodable upload"
+          },
+          "503": {
+            "description": "Busy or not ready"
+          }
+        }
+      }
+    },
+    "/api/v1/jobs/{job_id}": {
+      "get": {
+        "operationId": "getJob",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Missing or invalid X-API-Key"
+          },
+          "404": {
+            "description": "Unknown job_id"
+          },
+          "200": {
+            "description": "Job state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ProcessingJob"
+                    },
+                    {
+                      "$ref": "#/components/schemas/DoneJob"
+                    },
+                    {
+                      "$ref": "#/components/schemas/FailedJob"
+                    }
+                  ],
+                  "discriminator": {
+                    "propertyName": "status",
+                    "mapping": {
+                      "processing": "#/components/schemas/ProcessingJob",
+                      "done": "#/components/schemas/DoneJob",
+                      "failed": "#/components/schemas/FailedJob"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ApiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      }
+    },
+    "schemas": {
+      "AnalyzeAccepted": {
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "minLength": 1,
+            "title": "Job Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "title": "AnalyzeAccepted",
+        "type": "object"
+      },
+      "DoneJob": {
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "minLength": 1,
+            "title": "Job Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "done",
+            "title": "Status",
+            "type": "string"
+          },
+          "verdict": {
+            "enum": [
+              "violation",
+              "no_violation"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          },
+          "violations": {
+            "items": {
+              "$ref": "#/components/schemas/Violation"
+            },
+            "title": "Violations",
+            "type": "array"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "verdict",
+          "violations"
+        ],
+        "title": "DoneJob",
+        "type": "object"
+      },
+      "EvidenceFrame": {
+        "additionalProperties": false,
+        "properties": {
+          "timestamp_sec": {
+            "minimum": 0,
+            "title": "Timestamp Sec",
+            "type": "number"
+          },
+          "image_base64": {
+            "maxLength": 6990508,
+            "minLength": 1,
+            "title": "Image Base64",
+            "type": "string"
+          }
+        },
+        "required": [
+          "timestamp_sec",
+          "image_base64"
+        ],
+        "title": "EvidenceFrame",
+        "type": "object"
+      },
+      "FailedJob": {
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "minLength": 1,
+            "title": "Job Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "failed",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "FailedJob",
+        "type": "object"
+      },
+      "ProcessingJob": {
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "minLength": 1,
+            "title": "Job Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "processing",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "ProcessingJob",
+        "type": "object"
+      },
+      "Violation": {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "minLength": 1,
+            "title": "Type",
+            "type": "string"
+          },
+          "timecode_sec": {
+            "minimum": 0,
+            "title": "Timecode Sec",
+            "type": "number"
+          },
+          "description": {
+            "minLength": 1,
+            "title": "Description",
+            "type": "string"
+          },
+          "evidence_frames": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceFrame"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Evidence Frames",
+            "type": "array"
+          }
+        },
+        "required": [
+          "type",
+          "timecode_sec",
+          "description",
+          "evidence_frames"
+        ],
+        "title": "Violation",
+        "type": "object"
+      }
+    }
+  }
+}

@@ -68,6 +68,7 @@ def observed_factory(*, metadata, **kwargs):
     from app.inference import analyzer as module, service
     current = {}
     base_analyzer, base_client, base_sample = service.Analyzer, service.LlamaClient, module.sample_frames
+    base_range = module.sample_range
 
     class Client(base_client):
         def chat(self, *args, **kw):
@@ -93,8 +94,17 @@ def observed_factory(*, metadata, **kwargs):
                 frames = base_sample(*args, **kw)
                 rec["sampled_pts"] = [f.pts_sec for f in frames]
                 return frames
+            def ranged(*args, **kw):
+                frames = base_range(*args, **kw)
+                if args[7] >= module.VERIFY_INDEX_BASE:
+                    pts = [f.pts_sec for f in frames]
+                    rec.setdefault("verification_ranges", []).append({
+                        "three_distinct_pts_in_interval": len(pts) == len(set(pts)) == 3
+                        and all(args[4] - .001 <= p <= args[5] + .001 for p in pts),
+                        "pts": pts, "indices": [f.index for f in frames]})
+                return frames
             try:
-                with patch.object(module, "sample_frames", sampled):
+                with patch.object(module, "sample_frames", sampled), patch.object(module, "sample_range", ranged):
                     result = super().analyze_video(video_path, job_dir, deadline_monotonic)
                 rec["mandatory_complete"] = bool(self.last_trace and self.last_trace.get("mandatory_analysis_complete"))
                 rec["limitations"] = result.limitations
@@ -228,6 +238,7 @@ def run(folder, cfg, items):
         write_json(folder / "private-run.json", receipt)
     records = [json.loads(line) for line in metadata.read_text(encoding="utf-8").splitlines()]
     analysis = {r["job"]: r for r in records if r["kind"] == "analysis"}
+    receipt["extra_verification_range_count"] = sum(len(a.get("verification_ranges", [])) for a in analysis.values())
     normal = [j for j in receipt["jobs"] if j["role"] != "timeout"]
     receipt["checks"].update(
         all_real_jobs_done=bool(normal) and all(j["status"] == "done" for j in normal),
@@ -241,6 +252,8 @@ def run(folder, cfg, items):
         pts_match=all(analysis.get(j["job_id"], {}).get("evidence_pts_match") for j in normal if j["status"] == "done"),
         negative_checks_complete=all(analysis.get(j["job_id"], {}).get("mandatory_complete")
                                     for j in normal if j["verdict"] == "no_violation"),
+        extra_verification_pts=all(r["three_distinct_pts_in_interval"] for a in analysis.values()
+                                   for r in a.get("verification_ranges", [])),
         finish_reason=all(r.get("finish_reason") == "stop" for r in records
                           if r["kind"] == "chat" and "error_class" not in r))
     return receipt
@@ -274,7 +287,7 @@ def main():
                        train_dev_csv_sha256=digest(args.train_dev_csv), config_sha256=digest(ROOT / "configs/model.yaml"),
                        catalog_sha256=digest(ROOT / "app/rules/catalog.json"),
                        source_commit=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
-                       ml_handoff="8311a626f85d650dfa7d78a40f96fd1b4d5947b7")
+                       ml_handoff=cfg["source_commit"])
         summary["code_sha256"] = {str(p.relative_to(ROOT)): digest(p) for p in
                                   [ROOT / "app/inference/analyzer.py", ROOT / "app/jobs/serialize.py",
                                    ROOT / "scripts/validation/final_acceptance.py"]}
@@ -287,6 +300,7 @@ def main():
             summary["gpu_before"] = gpu_snapshot()
             result = run(folder, cfg, items)
             summary["checks"] = result["checks"]
+            summary["extra_verification_range_count"] = result["extra_verification_range_count"]
             summary["dev"] = aggregate(result["jobs"], "dev")
             summary["diagnostic"] = aggregate(result["jobs"], "diagnostic")
             summary["longest"] = aggregate(result["jobs"], "longest")

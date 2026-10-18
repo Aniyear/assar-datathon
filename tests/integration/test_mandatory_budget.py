@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from app.contracts import AnalysisTimeoutError, ModelUnavailableError, UnassessableVideoError
+from app.contracts import AnalysisTimeoutError, DecodeError, ModelUnavailableError, UnassessableVideoError
 from app.inference import analyzer as an, facts_v6, rules_v6
 from app.inference.config import load_model_config
 from app.inference.video import Frame, VideoInfo
@@ -94,8 +94,30 @@ def test_completed_negative_is_allowed(tmp_path, monkeypatch):
 
 def test_three_frame_verification_is_not_claimed_for_two_frame_candidate(tmp_path, monkeypatch):
     _, run = execute(tmp_path, monkeypatch, mode="short", multi=True)
+    # A successful decode with insufficient frames is distinct from a broken decoder.
+    monkeypatch.setattr(an, "sample_range", lambda *a, **k: [])
     with pytest.raises(UnassessableVideoError, match="three distinct"):
         run()
+
+
+@pytest.mark.parametrize("cash", [False, True])
+def test_third_frame_decoder_error_is_failed_even_with_other_event(tmp_path, monkeypatch, cash):
+    _, run = execute(tmp_path, monkeypatch, mode="short", multi=True, cash=cash)
+    def broken(*a, **k):
+        raise DecodeError("synthetic range decoder failure")
+    monkeypatch.setattr(an, "sample_range", broken)
+    with pytest.raises(DecodeError, match="synthetic range decoder failure"):
+        run()
+
+
+def test_insufficient_third_frame_preserves_other_event_with_limitation(tmp_path, monkeypatch):
+    analyzer, run = execute(tmp_path, monkeypatch, mode="short", multi=True, cash=True)
+    monkeypatch.setattr(an, "sample_range", lambda *a, **k: [])
+    result = run()
+    assert result.verdict == "violation"
+    assert [e.type_id for e in result.events] == [rules_v6.TYPE_CASH03]
+    assert analyzer.last_trace["mandatory_analysis_complete"] is False
+    assert any("mandatory" in note for note in result.limitations)
 
 
 def test_inactive_rule_does_not_require_desk_pass(tmp_path, monkeypatch):

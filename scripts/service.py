@@ -126,13 +126,13 @@ def preflight(args) -> dict:
             gpu = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total,memory.used",
                                   "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=10, check=True)
             report["gpu_snapshot"] = gpu.stdout.strip().splitlines()
-            processes = subprocess.run(["nvidia-smi", "--query-compute-apps=pid", "--format=csv,noheader,nounits"],
+            from scripts.gpu_processes import process_inventory
+            processes = subprocess.run(["nvidia-smi", "-q", "-x"],
                                        capture_output=True, text=True, timeout=10, check=True)
-            pids = [int(line) for line in processes.stdout.splitlines() if line.strip().isdigit()]
-            report["compute_pids"] = pids
-            if pids:
+            report.update(process_inventory(processes.stdout))
+            if report["compute_pids"]:
                 report["problems"].append("GPU занят вычислительными процессами; согласуйте слот с Омаром. Ничего не остановлено")
-        except (OSError, subprocess.SubprocessError):
+        except (OSError, subprocess.SubprocessError, ValueError):
             report["problems"].append("Не удалось проверить GPU через nvidia-smi")
     report["ready"] = not report["problems"]
     return report
